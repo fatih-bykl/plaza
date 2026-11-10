@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plaza Ofis</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="ust">
+    <div class="marka"><span class="logo">▦</span> Plaza <small>ofis</small></div>
+    <div id="durum-rozeti" class="rozet">Hazır</div>
+    <div class="bosluk"></div>
+    <div id="anahtar-uyari" class="uyari gizli">API anahtarı yok — yalnızca simülasyon</div>
+  </header>
+
+  <main class="duzen">
+    <section class="ofis-alani">
+      <svg id="ofis" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kuşbakışı ofis"></svg>
+      <div class="ipucu">Bir masaya tıklayın: yapay zekâyı, rolü ve araçları ayarlayın. CEO masası görev verir.</div>
+    </section>
+
+    <aside class="panel">
+      <!-- Görev görünümü -->
+      <div id="gorunum-gorev" class="gorunum">
+        <h2>CEO'ya görev ver</h2>
+        <p class="aciklama">Tüm işler önce CEO'ya gelir. CEO planlar, departmanlara dağıtır, sonuçları değerlendirir.</p>
+        <textarea id="talep" rows="4" placeholder="Örn: Küçük bir kafe için web sitesi metinleri ve basit bir HTML sayfası hazırla"></textarea>
+        <div class="satir">
+          <label class="kutu"><input type="checkbox" id="simulasyon"> Simülasyon <small>(Claude çağrılmaz)</small></label>
+          <label>Revizyon
+            <select id="revizyon"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option></select>
+          </label>
+        </div>
+        <div class="satir">
+          <button id="gonder" class="birincil">CEO'ya gönder</button>
+          <button id="durdur" class="tehlike gizli">Durdur</button>
+          <button id="sonuc-gor" class="gizli">Sonucu gör</button>
+        </div>
+        <div id="hata" class="hata gizli"></div>
+
+        <h3>İş akışı</h3>
+        <div id="plan-ozet" class="aciklama">Henüz görev yok.</div>
+        <ol id="adimlar" class="adimlar"></ol>
+
+        <h3>Kayıt</h3>
+        <ul id="kayit" class="kayit"></ul>
+
+        <h3>Geçmiş işler</h3>
+        <ul id="gecmis" class="gecmis"></ul>
+
+        <h3>Ofis düzeni</h3>
+        <p class="aciklama">Bir odanın boş zeminine tıklayarak departmanı yönetin, masa ekleyin.</p>
+        <div class="satir">
+          <button id="departman-ekle">+ Departman ekle</button>
+          <button id="ofis-sifirla" class="tehlike">Ofisi varsayılana döndür</button>
+        </div>
+      </div>
+
+      <!-- Departman görünümü -->
+      <div id="gorunum-departman" class="gorunum gizli">
+        <button class="baglanti geri-btn">← Görevlere dön</button>
+        <div class="masa-baslik">
+          <span id="dep-renk" class="nokta"></span>
+          <h2 id="dep-baslik"></h2>
+        </div>
+        <form id="dep-form">
+          <label>Departman adı <input name="name" required maxlength="40"></label>
+          <div class="satir"><button type="submit">Adı kaydet</button></div>
+        </form>
+
+        <h3>Masalar</h3>
+        <ul id="dep-masalar" class="masa-gorevler"></ul>
+
+        <h3>Yeni masa ekle</h3>
+        <form id="yeni-masa-form">
+          <label>İsim <input name="isim" placeholder="Örn: Ece"></label>
+          <label>Rol <input name="role" required placeholder="Örn: Sosyal Medya Uzmanı" maxlength="60"></label>
+          <label>Bu masada çalışan yapay zekâ <select name="model"></select></label>
+          <label>Hedef <textarea name="goal" rows="2" placeholder="Boş bırakılırsa rolden üretilir"></textarea></label>
+          <div class="satir">
+            <button type="submit" class="birincil">Masa ekle</button>
+            <span id="dep-dolu" class="aciklama gizli">Oda dolu</span>
+          </div>
+        </form>
+
+        <div class="satir" style="margin-top:24px">
+          <button id="dep-kaldir" class="tehlike">Departmanı kaldır</button>
+        </div>
+      </div>
+
+      <!-- Masa görünümü -->
+      <div id="gorunum-masa" class="gorunum gizli">
+        <button class="baglanti geri-btn">← Görevlere dön</button>
+        <div class="masa-baslik">
+          <span id="masa-renk" class="nokta"></span>
+          <div>
+            <h2 id="masa-isim"></h2>
+            <div id="masa-alt" class="aciklama"></div>
+          </div>
+        </div>
+        <div id="masa-durum" class="masa-durum"></div>
+
+        <form id="masa-form">
+          <label>İsim <input name="isim" required></label>
+          <label>Bu masada çalışan yapay zekâ
+            <select name="model_secim"></select>
+          </label>
+          <label id="ozel-model-kap" class="gizli">Özel model kimliği
+            <input name="model_ozel" placeholder="saglayici/model-adi">
+          </label>
+          <label>Rol <input name="role" required></label>
+          <label>Hedef <textarea name="goal" rows="3"></textarea></label>
+          <label>Karakter / talimatlar <textarea name="backstory" rows="4"></textarea></label>
+          <fieldset id="arac-kap">
+            <legend>Araçlar</legend>
+            <div id="araclar"></div>
+          </fieldset>
+          <label id="aktif-kap" class="kutu"><input type="checkbox" name="aktif"> Masa aktif (CEO bu çalışana görev verebilir)</label>
+          <div class="satir">
+            <button type="submit" class="birincil">Kaydet</button>
+            <button type="button" id="sifirla">Varsayılana dön</button>
+            <button type="button" id="masa-kaldir" class="tehlike">Masayı kaldır</button>
+            <span id="kaydedildi" class="aciklama gizli">Kaydedildi ✓</span>
+          </div>
+        </form>
+
+        <h3>Bu işteki görevleri</h3>
+        <ul id="masa-gorevler" class="masa-gorevler"></ul>
+      </div>
+    </aside>
+  </main>
+
+  <div id="modal" class="modal gizli" role="dialog" aria-modal="true">
+    <div class="modal-kutu">
+      <div class="modal-ust">
+        <h2 id="modal-baslik"></h2>
+        <button id="modal-kapat" class="baglanti" aria-label="Kapat">✕</button>
+      </div>
+      <div id="modal-dosyalar" class="dosyalar"></div>
+      <div id="modal-icerik" class="md"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

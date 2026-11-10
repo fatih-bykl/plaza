@@ -1,0 +1,20 @@
+[project]
+name = "plaza"
+version = "0.1.0"
+description = "Claude destekli çok departmanlı ajan ofisi (CrewAI)"
+requires-python = ">=3.12"
+dependencies = [
+    "crewai[anthropic]>=1.15.37",
+    "fastapi>=0.162.3",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+plaza = "plaza:main"
+plaza-ofis = "plaza.server:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
