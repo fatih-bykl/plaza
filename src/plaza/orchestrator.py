@@ -1,9 +1,10 @@
 """CEO merkezli iş akışı.
 
-1. Talep her zaman önce CEO'ya gelir. CEO talebi inceler ve bir iş planı çıkarır:
-   hangi çalışan, hangi sırayla, hangi görevi yapacak.
-2. Görevler sırayla departmanlara gider. Her çalışan kendisinden önceki
-   çalışanların çıktılarını görür, değerlendirir ve kendi katkısını ekler.
+1. Talep her zaman önce CEO'ya gelir. CEO talebi inceler ve aşamalı bir iş planı
+   çıkarır: hangi çalışan, hangi aşamada, hangi görevi yapacak. İstenirse plan
+   kullanıcı onayına sunulur ve kullanıcı planı düzenleyebilir.
+2. Aşamalar sırayla yürür; aynı aşamadaki görevler PARALEL çalışır. Her çalışan
+   önceki aşamaların çıktılarını görür, değerlendirir ve kendi katkısını ekler.
 3. CEO sonuçları değerlendirir; yetersiz bulursa ilgili çalışanlara revizyon
    gönderir (en fazla `max_revizyon` tur), sonra nihai teslimat raporunu yazar.
 
@@ -17,7 +18,8 @@ import random
 import re
 import threading
 import time
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -27,6 +29,7 @@ from .tools import build_tools
 
 Emit = Callable[..., None]
 MAX_BAGLAM = 6000
+MAX_EK = 4000
 
 
 class Durduruldu(Exception):
@@ -37,6 +40,7 @@ class Durduruldu(Exception):
 class Adim:
     calisan: str
     gorev: str
+    asama: int = 1
 
 
 def _json_ayikla(metin: str) -> dict:
@@ -50,6 +54,10 @@ def _kisalt(s: str, n: int = MAX_BAGLAM) -> str:
     return s if len(s) <= n else s[:n] + "\n…(kısaltıldı)"
 
 
+def _token(kullanim) -> int:
+    return int(getattr(kullanim, "total_tokens", 0) or 0)
+
+
 class IsAkisi:
     def __init__(
         self,
@@ -60,6 +68,9 @@ class IsAkisi:
         simulasyon: bool = False,
         max_revizyon: int = 1,
         iptal: threading.Event | None = None,
+        plan_onayi: bool = False,
+        onceki_sonuc: str = "",
+        ekler: list[tuple[str, str]] | None = None,
     ):
         self.office = office
         self.talep = talep
@@ -68,18 +79,28 @@ class IsAkisi:
         self.simulasyon = simulasyon
         self.max_revizyon = max_revizyon
         self.iptal = iptal or threading.Event()
+        self.plan_onayi = plan_onayi
+        self.onceki_sonuc = onceki_sonuc
+        self.ekler = ekler or []
         self.plan_ozeti = ""
         self.ciktilar: dict[str, str] = {}  # çalışan -> en güncel çıktı (sıra korunur)
+        self._kilit = threading.Lock()
+        self._onay = threading.Event()
+        self._onaylanan: list[Adim] = []
+        self._ceo_llm = None
+        self.istatistik: dict[str, dict] = {}  # çalışan -> {gorev, sure, token}
 
     # ------------------------------------------------------------------ akış
     def calistir(self) -> str:
         ceo = self.office.ceo
         self.emit("durum", masa="ceo", durum="dusunuyor", aciklama="Talebi inceliyor, plan çıkarıyor")
         self.plan_ozeti, adimlar = self._planla()
-        self.emit("plan", ozet=self.plan_ozeti, adimlar=[a.__dict__ for a in adimlar])
+        if self.plan_onayi:
+            adimlar = self._onay_bekle(adimlar)
+        self.emit("plan", ozet=self.plan_ozeti, adimlar=[asdict(a) for a in adimlar])
         self.emit("durum", masa="ceo", durum="bekliyor", aciklama="Departmanları bekliyor")
 
-        self._adimlari_calistir(adimlar, tur=0)
+        self._asamalari_calistir(adimlar, tur=0)
 
         tur = 0
         while True:
@@ -91,9 +112,11 @@ class IsAkisi:
                 self.emit("degerlendirme", onay=True, tur=tur, revizyonlar=[])
                 break
             tur += 1
-            self.emit("degerlendirme", onay=False, tur=tur, revizyonlar=[a.__dict__ for a in revizyonlar])
+            for r in revizyonlar:
+                r.asama = 1  # revizyonlar birlikte (paralel) yapılır
+            self.emit("degerlendirme", onay=False, tur=tur, revizyonlar=[asdict(a) for a in revizyonlar])
             self.emit("durum", masa="ceo", durum="bekliyor", aciklama=f"Revizyon turu {tur}")
-            self._adimlari_calistir(revizyonlar, tur=tur)
+            self._asamalari_calistir(revizyonlar, tur=tur)
 
         self._kontrol()
         self.emit("durum", masa="ceo", durum="calisiyor", aciklama="Nihai raporu yazıyor")
@@ -101,25 +124,93 @@ class IsAkisi:
         self.emit("durum", masa="ceo", durum="bitti", aciklama=f"{ceo.isim} işi teslim etti")
         return sonuc
 
+    def ozet_istatistik(self) -> dict:
+        ceo_token = _token(self._ceo_llm.get_token_usage_summary()) if self._ceo_llm else 0
+        calisan_token = sum(v["token"] for v in self.istatistik.values())
+        return {"ceo_token": ceo_token, "toplam_token": ceo_token + calisan_token, "calisanlar": self.istatistik}
+
     def _kontrol(self) -> None:
         if self.iptal.is_set():
             raise Durduruldu()
 
-    def _adimlari_calistir(self, adimlar: list[Adim], tur: int) -> None:
-        for a in adimlar:
+    # ------------------------------------------------------------ plan onayı
+    def _onay_bekle(self, adimlar: list[Adim]) -> list[Adim]:
+        self.emit("plan_onay_bekleniyor", ozet=self.plan_ozeti, adimlar=[asdict(a) for a in adimlar])
+        self.emit("durum", masa="ceo", durum="bekliyor", aciklama="Planın onayınızı bekliyor")
+        while not self._onay.wait(0.5):
             self._kontrol()
-            desk = self.office.desk(a.calisan)
-            self.emit("gorev_atandi", kimden="ceo", kime=desk.key, gorev=a.gorev, tur=tur)
-            self.emit("durum", masa=desk.key, durum="calisiyor", aciklama=a.gorev[:120])
-            try:
-                cikti = self._calisan(desk, a.gorev, tur)
-            except Exception:
-                self.emit("durum", masa=desk.key, durum="hata", aciklama="Görev başarısız")
-                raise
+        return self._onaylanan
+
+    def plani_onayla(self, ham: list) -> None:
+        """Kullanıcının (düzenlenmiş) planını kabul eder. Arayüzden çağrılır."""
+        adimlar = self._adimlari_dogrula(ham)
+        if not adimlar:
+            raise ValueError("Plan en az bir geçerli adım içermeli.")
+        self._onaylanan = adimlar
+        self._onay.set()
+
+    @property
+    def onay_bekliyor(self) -> bool:
+        return self.plan_onayi and not self._onay.is_set()
+
+    # -------------------------------------------------------------- yürütme
+    def _asamalari_calistir(self, adimlar: list[Adim], tur: int) -> None:
+        for asama in sorted({a.asama for a in adimlar}):
+            kalan = [a for a in adimlar if a.asama == asama]
+            while kalan:  # aynı çalışan bir aşamada iki kez varsa sıraya koy
+                parti, sonraki, gorulen = [], [], set()
+                for a in kalan:
+                    (sonraki if a.calisan in gorulen else parti).append(a)
+                    gorulen.add(a.calisan)
+                self._kontrol()
+                self._parti_calistir(parti, tur)
+                kalan = sonraki
+
+    def _parti_calistir(self, parti: list[Adim], tur: int) -> None:
+        with self._kilit:
+            onceki = dict(self.ciktilar)  # aşama içindekiler birbirini görmez
+        for a in parti:
+            self.emit("gorev_atandi", kimden="ceo", kime=a.calisan, gorev=a.gorev, tur=tur, asama=a.asama)
+            self.emit("durum", masa=a.calisan, durum="calisiyor", aciklama=a.gorev[:120])
+        if len(parti) == 1:
+            self._tek_adim(parti[0], tur, onceki)
+            return
+        with ThreadPoolExecutor(max_workers=len(parti)) as havuz:
+            isler = [havuz.submit(self._tek_adim, a, tur, onceki) for a in parti]
+            hatalar = [f.exception() for f in isler if f.exception()]
+        if hatalar:
+            raise hatalar[0]
+
+    def _tek_adim(self, a: Adim, tur: int, onceki: dict[str, str]) -> None:
+        desk = self.office.desk(a.calisan)
+        bas = time.monotonic()
+        try:
+            cikti, token = self._calisan(desk, a.gorev, tur, onceki)
+        except Exception:
+            self.emit("durum", masa=desk.key, durum="hata", aciklama="Görev başarısız")
+            raise
+        sure = round(time.monotonic() - bas, 1)
+        with self._kilit:
             self.ciktilar.pop(desk.key, None)
             self.ciktilar[desk.key] = cikti
-            self.emit("gorev_bitti", kime=desk.key, cikti=cikti, tur=tur)
-            self.emit("durum", masa=desk.key, durum="bitti", aciklama="Görevi CEO'ya teslim etti")
+            s = self.istatistik.setdefault(desk.key, {"gorev": 0, "sure": 0.0, "token": 0})
+            s["gorev"] += 1
+            s["sure"] = round(s["sure"] + sure, 1)
+            s["token"] += token
+        self.emit("gorev_bitti", kime=desk.key, cikti=cikti, tur=tur, asama=a.asama, sure=sure, token=token)
+        self.emit("durum", masa=desk.key, durum="bitti", aciklama="Görevi CEO'ya teslim etti")
+
+    # --------------------------------------------------------------- bağlam
+    def _ek_baglam(self) -> str:
+        parcalar = []
+        if self.onceki_sonuc:
+            parcalar.append(
+                "Bu iş, daha önce tamamlanmış bir işin DEVAMIDIR. Önceki işin nihai sonucu:\n"
+                f"{_kisalt(self.onceki_sonuc)}\n(Önceki işin dosyaları çalışma klasöründe 'onceki/' altındadır.)"
+            )
+        for ad, icerik in self.ekler:
+            parcalar.append(f"Talep sahibinin eklediği dosya 'girdi/{ad}':\n{_kisalt(icerik, MAX_EK)}")
+        return ("\n\n" + "\n\n".join(parcalar)) if parcalar else ""
 
     # --------------------------------------------------------------- CEO
     def _ceo_sistem(self) -> str:
@@ -136,19 +227,29 @@ class IsAkisi:
         )
 
     def _ceo_cagir(self, kullanici: str) -> str:
-        llm = make_llm(self.office.ceo.model)
-        return str(llm.call([
+        if self._ceo_llm is None:
+            self._ceo_llm = make_llm(self.office.ceo.model)
+        return str(self._ceo_llm.call([
             {"role": "system", "content": self._ceo_sistem()},
             {"role": "user", "content": kullanici},
         ]))
 
     def _adimlari_dogrula(self, ham: list) -> list[Adim]:
         aktif = {s.key for s in self.office.aktif_calisanlar()}
-        return [
-            Adim(calisan=str(a["calisan"]), gorev=str(a["gorev"]).strip())
-            for a in ham or []
-            if isinstance(a, dict) and a.get("calisan") in aktif and str(a.get("gorev", "")).strip()
-        ]
+        adimlar = []
+        for a in ham or []:
+            if not isinstance(a, dict) or a.get("calisan") not in aktif or not str(a.get("gorev", "")).strip():
+                continue
+            try:
+                asama = max(1, int(a.get("asama", 1)))
+            except (TypeError, ValueError):
+                asama = 1
+            adimlar.append(Adim(calisan=str(a["calisan"]), gorev=str(a["gorev"]).strip(), asama=asama))
+        # aşamaları 1..n olarak sıkıştır, sıraya diz
+        sira = {a: i + 1 for i, a in enumerate(sorted({x.asama for x in adimlar}))}
+        for x in adimlar:
+            x.asama = sira[x.asama]
+        return sorted(adimlar, key=lambda x: x.asama)
 
     def _planla(self) -> tuple[str, list[Adim]]:
         aktifler = self.office.aktif_calisanlar()
@@ -156,17 +257,27 @@ class IsAkisi:
             raise ValueError("Ofiste aktif çalışan yok. En az bir masayı aktif yapın.")
         if self.simulasyon:
             time.sleep(1.5)
+            deps = list(dict.fromkeys(s.department_key for s in aktifler))
+            n = len(deps)
+
+            def asama(dkey: str) -> int:
+                i = deps.index(dkey)
+                return 1 if i == 0 else (3 if i == n - 1 and n > 2 else 2)
+
             return (
-                "Simülasyon: talep tüm aktif departmanlardan sırayla geçecek.",
-                [Adim(s.key, f"{s.role} olarak talebe kendi uzmanlık alanından katkı ver.") for s in aktifler],
+                "Simülasyon: ilk departman hazırlık yapar, ortadakiler paralel çalışır, son departman toparlar.",
+                [Adim(s.key, f"{s.role} olarak talebe kendi uzmanlık alanından katkı ver.", asama(s.department_key))
+                 for s in aktifler],
             )
         yanit = self._ceo_cagir(
-            f"Yeni talep:\n\n{self.talep}\n\nEkibin (anahtar: kişi, rol, departman — hedef):\n{self._ekip_metni()}\n\n"
-            "Talebi analiz et ve bir iş planı çıkar. Her adım tek bir çalışana verilen net bir talimattır. "
-            "Çalışanlar adımları sırayla yapar ve önceki adımların çıktılarını görerek değerlendirir. "
-            "Yalnızca gerekli çalışanları dahil et; bir çalışan birden fazla adımda yer alabilir.\n\n"
+            f"Yeni talep:\n\n{self.talep}{self._ek_baglam()}\n\n"
+            f"Ekibin (anahtar: kişi, rol, departman — hedef):\n{self._ekip_metni()}\n\n"
+            "Talebi analiz et ve aşamalı bir iş planı çıkar. Her adım tek bir çalışana verilen net bir talimattır. "
+            "Aşamalar sırayla yürür; AYNI aşamadaki adımlar paralel çalışır ve yalnızca önceki aşamaların "
+            "çıktılarını görür. Birbirinin çıktısına ihtiyaç duymayan işleri aynı aşamaya koyarak işi hızlandır; "
+            "bağımlı işleri sonraki aşamalara koy. Yalnızca gerekli çalışanları dahil et.\n\n"
             'Yalnızca şu biçimde JSON döndür:\n{"ozet": "planın kısa özeti", '
-            '"adimlar": [{"calisan": "<anahtar>", "gorev": "çalışana talimat"}]}'
+            '"adimlar": [{"asama": 1, "calisan": "<anahtar>", "gorev": "çalışana talimat"}]}'
         )
         try:
             veri = _json_ayikla(yanit)
@@ -176,12 +287,12 @@ class IsAkisi:
             adimlar, ozet = [], ""
         if not adimlar:
             ozet = ozet or "Plan okunamadı; talep tüm aktif departmanlardan sırayla geçecek."
-            adimlar = [Adim(s.key, f"Talebe {s.role} olarak katkı ver.") for s in aktifler]
+            adimlar = [Adim(s.key, f"Talebe {s.role} olarak katkı ver.", i + 1) for i, s in enumerate(aktifler)]
         return ozet, adimlar
 
-    def _ciktilar_metni(self) -> str:
+    def _ciktilar_metni(self, ciktilar: dict[str, str] | None = None) -> str:
         parcalar = []
-        for key, cikti in self.ciktilar.items():
+        for key, cikti in (self.ciktilar if ciktilar is None else ciktilar).items():
             d = self.office.desk(key)
             parcalar.append(f"### {d.isim} — {d.role} ({d.department})\n{_kisalt(cikti)}")
         return "\n\n".join(parcalar) or "(henüz çıktı yok)"
@@ -196,8 +307,8 @@ class IsAkisi:
         if son_tur:
             return True, []
         yanit = self._ceo_cagir(
-            f"Talep:\n{self.talep}\n\nPlanın: {self.plan_ozeti}\n\nDepartmanlardan gelen çıktılar:\n\n"
-            f"{self._ciktilar_metni()}\n\nEkip:\n{self._ekip_metni()}\n\n"
+            f"Talep:\n{self.talep}{self._ek_baglam()}\n\nPlanın: {self.plan_ozeti}\n\n"
+            f"Departmanlardan gelen çıktılar:\n\n{self._ciktilar_metni()}\n\nEkip:\n{self._ekip_metni()}\n\n"
             "Bu çıktılar talebi tam ve kaliteli karşılıyor mu? Karşılıyorsa onay ver. Karşılamıyorsa "
             "yalnızca gerçekten düzeltilmesi gerekenler için ilgili çalışanlara net revizyon talimatı yaz.\n\n"
             'Yalnızca şu biçimde JSON döndür:\n{"onay": true|false, '
@@ -216,50 +327,56 @@ class IsAkisi:
                 f"- **{self.office.desk(k).isim}** ({self.office.desk(k).role}): görevini tamamladı."
                 for k in self.ciktilar
             )
+            ek = f"\n\n**Ek dosyalar:** {', '.join(a for a, _ in self.ekler)}" if self.ekler else ""
+            devam = "\n\n_Bu iş önceki bir işin devamıdır._" if self.onceki_sonuc else ""
             return (
-                f"# Nihai Teslimat (simülasyon)\n\n**Talep:** {self.talep}\n\n## Kim ne yaptı\n{satirlar}\n\n"
+                f"# Nihai Teslimat (simülasyon)\n\n**Talep:** {self.talep}{ek}{devam}\n\n## Kim ne yaptı\n{satirlar}\n\n"
                 "## Not\nBu bir simülasyon çıktısıdır; Claude çağrılmadı."
             )
         return self._ceo_cagir(
-            f"Talep:\n{self.talep}\n\nDepartmanlardan gelen nihai çıktılar:\n\n{self._ciktilar_metni()}\n\n"
+            f"Talep:\n{self.talep}{self._ek_baglam()}\n\nDepartmanlardan gelen nihai çıktılar:\n\n"
+            f"{self._ciktilar_metni()}\n\n"
             "Talep sahibine sunulacak nihai teslimatı Markdown olarak yaz: sonucun kendisi (talep bir "
             "metin/rapor/plan ise eksiksiz hali), hangi çalışanın ne yaptığı, üretilen dosyalar ve açık kalan "
             "konular. JSON kullanma."
         )
 
     # ------------------------------------------------------------ çalışan
-    def _calisan(self, desk: Desk, gorev: str, tur: int) -> str:
+    def _calisan(self, desk: Desk, gorev: str, tur: int, onceki: dict[str, str]) -> tuple[str, int]:
         if self.simulasyon:
             time.sleep(random.uniform(2.0, 4.0))
+            if self.iptal.is_set():
+                raise Durduruldu()
             ek = " (revize edildi)" if tur else ""
             return (
                 f"## {desk.role} çıktısı{ek}\n\n- Talep incelendi: _{self.talep[:80]}_\n"
-                f"- Önceki {len(self.ciktilar)} çıktı değerlendirildi.\n- {gorev}\n\nSimülasyon çıktısıdır."
+                f"- Önceki {len(onceki)} çıktı değerlendirildi.\n- {gorev}\n\nSimülasyon çıktısıdır.",
+                0,
             )
 
         from crewai import Agent, Crew, Process, Task
 
-        onceki = {k: v for k, v in self.ciktilar.items() if k != desk.key}
+        digerleri = {k: v for k, v in onceki.items() if k != desk.key}
         baglam = ""
-        if onceki:
-            baglam = "\n\nEkip arkadaşlarının şimdiye kadarki çıktıları (değerlendir ve üzerine inşa et):\n\n" + "\n\n".join(
-                f"### {self.office.desk(k).isim} — {self.office.desk(k).role}\n{_kisalt(v)}" for k, v in onceki.items()
-            )
-        if tur and desk.key in self.ciktilar:
-            baglam += f"\n\nBu bir REVİZYON. Önceki çıktın:\n{_kisalt(self.ciktilar[desk.key])}"
+        if digerleri:
+            baglam = "\n\nEkip arkadaşlarının şimdiye kadarki çıktıları (değerlendir ve üzerine inşa et):\n\n" + \
+                self._ciktilar_metni(digerleri)
+        if tur and desk.key in onceki:
+            baglam += f"\n\nBu bir REVİZYON. Önceki çıktın:\n{_kisalt(onceki[desk.key])}"
 
+        llm = make_llm(desk.model)
         agent = Agent(
             role=desk.role,
             goal=desk.goal,
             backstory=f"Adın {desk.isim}. {desk.backstory}\n{desk.department} çalışanısın. Her zaman Türkçe yanıt verirsin.",
             tools=build_tools(desk.tools, self.workdir),
-            llm=make_llm(desk.model),
+            llm=llm,
             allow_delegation=False,
             verbose=False,
         )
         task = Task(
             description=(
-                f"Plaza'ya gelen talep (CEO üzerinden):\n\n{self.talep}\n\n"
+                f"Plaza'ya gelen talep (CEO üzerinden):\n\n{self.talep}{self._ek_baglam()}\n\n"
                 f"CEO'nun sana verdiği görev:\n{gorev}{baglam}\n\n"
                 "Dosya üretmen gerekiyorsa araçlarınla çalışma klasörüne yaz."
             ),
@@ -267,4 +384,5 @@ class IsAkisi:
             agent=agent,
         )
         sonuc = Crew(agents=[agent], tasks=[task], process=Process.sequential, verbose=False).kickoff()
-        return str(sonuc.raw)
+        token = _token(sonuc.token_usage) or _token(llm.get_token_usage_summary())
+        return str(sonuc.raw), token

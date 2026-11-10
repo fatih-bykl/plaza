@@ -35,6 +35,21 @@ masasında çalışan personel.
   hangi sırayla ne yapacağını planlar; görev kâğıtları masalara uçar. Her çalışan kendisinden
   önceki çıktıları değerlendirip kendi katkısını ekler. CEO sonuçları değerlendirir, gerekirse
   revizyon ister (0–2 tur), sonra nihai teslimatı yazar.
+- **Paralel aşamalar:** CEO planı aşamalara böler. Aynı aşamadaki görevler aynı anda çalışır ve
+  yalnızca önceki aşamaların çıktılarını görür; bağımlı işler sonraki aşamalara konur.
+- **Planı önce bana göster:** İşaretlenirse CEO'nun planı departmanlara gitmeden önce panelde
+  açılır; çalışanı, görevi ve aşamayı değiştirebilir, adım ekleyip silebilir, sonra onaylarsınız.
+- **Görev kuyruğu:** CEO çalışırken verilen görevler sıraya girer ve sırayla başlar; sıradaki bir
+  görev listeden çıkarılabilir.
+- **Ek dosyalar:** 📎 ile metin dosyaları (en fazla 10 dosya, her biri 200.000 karakter) eklenir.
+  `girdi/` klasörüne kaydedilir; CEO ve çalışanlar içeriklerini görür.
+- **Devam görevi:** Bir iş sonucunda ya da geçmişte "Bu işin üzerine devam et" denirse yeni
+  görev önceki işin sonucunu bağlam olarak alır; önceki dosyalar `onceki/` altına kopyalanır.
+- **İstatistikler:** Her adımın süresi ve token kullanımı, işin toplamı ve masa panelinde o
+  masanın tüm zamanlar toplamı (simülasyonlar hariç) gösterilir.
+- **ZIP indir:** Bir işin tüm dosyaları tek tıkla indirilebilir.
+- **Tema ve bildirim:** Üst çubuktaki ◐ ile açık/koyu tema; sekme arka plandayken iş bitince,
+  hata olunca ya da plan onay beklerken tarayıcı bildirimi.
 - **Masaya tıklayınca:** o masada çalışacak yapay zekâ modeli (Opus / Sonnet / Haiku / Fable ya da
   özel model kimliği), isim, rol, hedef, karakter/talimatlar, araçlar ve masanın aktifliği
   ayarlanır; o işte masaya verilen görevler ve çıktıları görülür. Ayarlar `ofis.json` dosyasına

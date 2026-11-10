@@ -7,18 +7,22 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import json
 import os
+import shutil
 import threading
 import time
+import uuid
 import webbrowser
+import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -40,32 +44,71 @@ from .tools import TOOL_TYPES
 
 WEB = Path(__file__).parent / "web"
 CIKTI = Path(os.getenv("PLAZA_CIKTI", "cikti")).resolve()
+MAX_EK_SAYISI = 10
+MAX_EK_BOYUT = 200_000  # karakter
 
 
+# ------------------------------------------------------------------ istekler
+class Ek(BaseModel):
+    ad: str = Field(min_length=1, max_length=120)
+    icerik: str = Field(max_length=MAX_EK_BOYUT)
+
+
+class GorevIstegi(BaseModel):
+    talep: str = Field(min_length=1)
+    simulasyon: bool = False
+    max_revizyon: int = Field(default=1, ge=0, le=3)
+    plan_onayi: bool = False
+    onceki_is: str | None = None
+    ekler: list[Ek] = Field(default_factory=list, max_length=MAX_EK_SAYISI)
+
+
+# ------------------------------------------------------------------ durum
 @dataclass
 class Is:
     id: str
-    talep: str
+    istek: GorevIstegi
     klasor: Path
     olaylar: list[dict] = field(default_factory=list)
     calisiyor: bool = True
     iptal: threading.Event = field(default_factory=threading.Event)
+    akis: IsAkisi | None = None
+    baslangic: float = field(default_factory=time.time)
+
+    @property
+    def talep(self) -> str:
+        return self.istek.talep.strip()
 
 
 class Yayin:
-    """İş parçacığından gelen olayları SSE abonelerine iletir."""
+    """İş parçacığından gelen olayları SSE abonelerine iletir; iş kuyruğunu tutar."""
 
     def __init__(self) -> None:
         self.kilit = threading.Lock()
         self.aboneler: list[tuple[asyncio.AbstractEventLoop, asyncio.Queue]] = []
         self.is_: Is | None = None
+        self.kuyruk: list[dict] = []  # {"id", "istek"}
+
+    def _gonder(self, olay: dict) -> None:
+        for loop, q in self.aboneler:
+            loop.call_soon_threadsafe(q.put_nowait, olay)
 
     def yayinla(self, is_: Is, tip: str, **veri) -> None:
         olay = {"tip": tip, "zaman": time.time(), "is_id": is_.id, **veri}
         with self.kilit:
             is_.olaylar.append(olay)
-            for loop, q in self.aboneler:
-                loop.call_soon_threadsafe(q.put_nowait, olay)
+            self._gonder(olay)
+
+    def kuyruk_olayi(self) -> dict:
+        return {
+            "tip": "kuyruk", "zaman": time.time(),
+            "liste": [{"id": k["id"], "talep": k["istek"].talep, "simulasyon": k["istek"].simulasyon}
+                      for k in self.kuyruk],
+        }
+
+    def kuyrugu_yayinla(self) -> None:
+        with self.kilit:
+            self._gonder(self.kuyruk_olayi())
 
 
 yayin = Yayin()
@@ -76,6 +119,14 @@ def _api_anahtari_var() -> bool:
     return bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
 
 
+def _is_klasoru(is_id: str) -> Path:
+    klasor = (CIKTI / is_id).resolve()
+    if klasor.parent != CIKTI or not (klasor / "is.json").exists():
+        raise HTTPException(404, "İş bulunamadı.")
+    return klasor
+
+
+# ------------------------------------------------------------------ ofis
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(WEB / "index.html")
@@ -179,23 +230,55 @@ def ofis_sifirla() -> dict:
     return _degistir(ofisi_sifirla)
 
 
-class GorevIstegi(BaseModel):
-    talep: str = Field(min_length=1)
-    simulasyon: bool = False
-    max_revizyon: int = Field(default=1, ge=0, le=3)
+# ------------------------------------------------------------------ işler
+def _yeni_is(istek: GorevIstegi) -> Is:
+    """Kilit altında çağrılır."""
+    taban = datetime.now().strftime("%Y%m%d-%H%M%S")
+    is_id, i = taban, 2
+    while (CIKTI / is_id).exists() or (yayin.is_ and yayin.is_.id == is_id):
+        is_id, i = f"{taban}-{i}", i + 1
+    return Is(id=is_id, istek=istek, klasor=CIKTI / is_id)
 
 
-def _isi_yurut(is_: Is, office, simulasyon: bool, max_revizyon: int) -> None:
+def _baslat(is_: Is) -> None:
+    istek = is_.istek
+    is_.klasor.mkdir(parents=True, exist_ok=True)
+    ekler = []
+    for ek in istek.ekler:
+        ad = Path(ek.ad).name or "ek.txt"
+        (is_.klasor / "girdi").mkdir(exist_ok=True)
+        (is_.klasor / "girdi" / ad).write_text(ek.icerik, encoding="utf-8")
+        ekler.append((ad, ek.icerik))
+    onceki_sonuc = ""
+    if istek.onceki_is:
+        onceki = (CIKTI / istek.onceki_is).resolve()
+        if onceki.parent == CIKTI and (onceki / "SONUC.md").exists():
+            onceki_sonuc = (onceki / "SONUC.md").read_text(encoding="utf-8")
+            shutil.copytree(onceki, is_.klasor / "onceki", ignore=shutil.ignore_patterns("is.json", "onceki"))
+    yayin.yayinla(
+        is_, "is_basladi", talep=is_.talep, simulasyon=istek.simulasyon, plan_onayi=istek.plan_onayi,
+        onceki_is=istek.onceki_is if onceki_sonuc else None, ekler=[a for a, _ in ekler],
+    )
+    threading.Thread(target=_isi_yurut, args=(is_, load_office(), ekler, onceki_sonuc), daemon=True).start()
+
+
+def _isi_yurut(is_: Is, office, ekler, onceki_sonuc: str) -> None:
+    istek = is_.istek
+
     def emit(tip: str, **veri) -> None:
         yayin.yayinla(is_, tip, **veri)
 
-    akis = IsAkisi(office, is_.talep, emit, is_.klasor, simulasyon, max_revizyon, is_.iptal)
+    akis = IsAkisi(
+        office, is_.talep, emit, is_.klasor, istek.simulasyon, istek.max_revizyon, is_.iptal,
+        plan_onayi=istek.plan_onayi, onceki_sonuc=onceki_sonuc, ekler=ekler,
+    )
+    is_.akis = akis
     try:
         sonuc = akis.calistir()
-        is_.klasor.mkdir(parents=True, exist_ok=True)
         (is_.klasor / "SONUC.md").write_text(sonuc, encoding="utf-8")
         dosyalar = sorted(str(p.relative_to(is_.klasor)) for p in is_.klasor.rglob("*") if p.is_file())
-        emit("is_bitti", sonuc=sonuc, klasor=is_.klasor.name, dosyalar=dosyalar)
+        emit("is_bitti", sonuc=sonuc, klasor=is_.klasor.name, dosyalar=dosyalar,
+             istatistik={**akis.ozet_istatistik(), "sure": round(time.time() - is_.baslangic, 1)})
     except Durduruldu:
         emit("is_durduruldu")
     except Exception as e:  # noqa: BLE001 — hatayı arayüze göster
@@ -209,30 +292,66 @@ def _isi_yurut(is_: Is, office, simulasyon: bool, max_revizyon: int) -> None:
             pass
         emit("is_hatasi", mesaj=mesaj or e.__class__.__name__)
     finally:
-        is_.calisiyor = False
         is_.klasor.mkdir(parents=True, exist_ok=True)
-        meta = {"id": is_.id, "talep": is_.talep, "simulasyon": simulasyon, "olaylar": is_.olaylar}
+        meta = {"id": is_.id, "talep": is_.talep, "simulasyon": istek.simulasyon, "olaylar": is_.olaylar}
         (is_.klasor / "is.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        with yayin.kilit:
+            is_.calisiyor = False
+            sonraki = None
+            if yayin.kuyruk:
+                sonraki = _yeni_is(yayin.kuyruk.pop(0)["istek"])
+                yayin.is_ = sonraki
+        if sonraki:
+            yayin.kuyrugu_yayinla()
+            _baslat(sonraki)
 
 
 @app.post("/api/gorev")
 def gorev_ver(istek: GorevIstegi) -> dict:
     if not istek.simulasyon and not _api_anahtari_var():
         raise HTTPException(400, "ANTHROPIC_API_KEY tanımlı değil. .env dosyasına yazın ya da simülasyon modunu açın.")
-    office = load_office()
-    if not office.aktif_calisanlar():
+    if not load_office().aktif_calisanlar():
         raise HTTPException(400, "Ofiste aktif çalışan yok.")
-    is_id = datetime.now().strftime("%Y%m%d-%H%M%S")
-    is_ = Is(id=is_id, talep=istek.talep.strip(), klasor=CIKTI / is_id)
+    if istek.onceki_is:
+        _is_klasoru(istek.onceki_is)
     with yayin.kilit:
         if yayin.is_ and yayin.is_.calisiyor:
-            raise HTTPException(409, "CEO şu anda başka bir iş üzerinde çalışıyor.")
-        yayin.is_ = is_
-    yayin.yayinla(is_, "is_basladi", talep=is_.talep, simulasyon=istek.simulasyon)
-    threading.Thread(
-        target=_isi_yurut, args=(is_, office, istek.simulasyon, istek.max_revizyon), daemon=True
-    ).start()
-    return {"is_id": is_id}
+            kid = uuid.uuid4().hex[:8]
+            yayin.kuyruk.append({"id": kid, "istek": istek})
+            sira = len(yayin.kuyruk)
+            is_ = None
+        else:
+            is_ = _yeni_is(istek)
+            yayin.is_ = is_
+    if is_ is None:
+        yayin.kuyrugu_yayinla()
+        return {"kuyrukta": True, "id": kid, "sira": sira}
+    _baslat(is_)
+    return {"is_id": is_.id}
+
+
+@app.delete("/api/kuyruk/{kid}")
+def kuyruktan_cikar(kid: str) -> dict:
+    with yayin.kilit:
+        yayin.kuyruk = [k for k in yayin.kuyruk if k["id"] != kid]
+    yayin.kuyrugu_yayinla()
+    return {"durum": "tamam"}
+
+
+class PlanOnayi(BaseModel):
+    adimlar: list[dict]
+
+
+@app.post("/api/plan/onay")
+def plan_onayla(onay: PlanOnayi) -> dict:
+    is_ = yayin.is_
+    if not is_ or not is_.calisiyor or not is_.akis or not is_.akis.onay_bekliyor:
+        raise HTTPException(409, "Onay bekleyen bir plan yok.")
+    try:
+        is_.akis.plani_onayla(onay.adimlar)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"durum": "onaylandi"}
 
 
 @app.post("/api/durdur")
@@ -249,6 +368,7 @@ async def olaylar(request: Request) -> StreamingResponse:
     q: asyncio.Queue = asyncio.Queue()
     with yayin.kilit:
         gecmis = list(yayin.is_.olaylar) if yayin.is_ else []
+        gecmis.append(yayin.kuyruk_olayi())
         yayin.aboneler.append((loop, q))
 
     async def akis():
@@ -268,31 +388,73 @@ async def olaylar(request: Request) -> StreamingResponse:
     return StreamingResponse(akis(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
-@app.get("/api/gecmis")
-def gecmis() -> list[dict]:
+# ------------------------------------------------------------------ geçmiş
+def _metalar():
     if not CIKTI.exists():
-        return []
-    sonuc = []
+        return
     for d in sorted(CIKTI.iterdir(), reverse=True):
         meta = d / "is.json"
         if d.is_dir() and meta.exists():
             try:
-                m = json.loads(meta.read_text(encoding="utf-8"))
+                yield d, json.loads(meta.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 continue
-            son = m["olaylar"][-1]["tip"] if m.get("olaylar") else ""
-            sonuc.append({"id": d.name, "talep": m.get("talep", ""), "simulasyon": m.get("simulasyon"), "durum": son})
-    return sonuc[:30]
+
+
+@app.get("/api/gecmis")
+def gecmis() -> list[dict]:
+    sonuc = []
+    for d, m in _metalar():
+        son = m["olaylar"][-1]["tip"] if m.get("olaylar") else ""
+        sonuc.append({"id": d.name, "talep": m.get("talep", ""), "simulasyon": m.get("simulasyon"), "durum": son})
+        if len(sonuc) >= 30:
+            break
+    return sonuc
+
+
+@app.get("/api/istatistik")
+def istatistik() -> dict:
+    """Masa bazında tüm geçmiş işlerin toplamı (simülasyonlar hariç)."""
+    masalar: dict[str, dict] = {}
+    is_sayisi = 0
+    for _, m in _metalar():
+        if m.get("simulasyon"):
+            continue
+        is_sayisi += 1
+        for o in m.get("olaylar", []):
+            if o.get("tip") == "gorev_bitti":
+                s = masalar.setdefault(o["kime"], {"gorev": 0, "sure": 0.0, "token": 0})
+                s["gorev"] += 1
+                s["sure"] = round(s["sure"] + o.get("sure", 0), 1)
+                s["token"] += o.get("token", 0)
+            elif o.get("tip") == "is_bitti":
+                s = masalar.setdefault("ceo", {"gorev": 0, "sure": 0.0, "token": 0})
+                s["gorev"] += 1
+                s["sure"] = round(s["sure"] + o.get("istatistik", {}).get("sure", 0), 1)
+                s["token"] += o.get("istatistik", {}).get("ceo_token", 0)
+    return {"is_sayisi": is_sayisi, "masalar": masalar}
 
 
 @app.get("/api/is/{is_id}")
 def is_detay(is_id: str) -> dict:
-    klasor = (CIKTI / is_id).resolve()
-    if klasor.parent != CIKTI or not (klasor / "is.json").exists():
-        raise HTTPException(404, "İş bulunamadı.")
+    klasor = _is_klasoru(is_id)
     m = json.loads((klasor / "is.json").read_text(encoding="utf-8"))
     m["dosyalar"] = sorted(str(p.relative_to(klasor)) for p in klasor.rglob("*") if p.is_file())
     return m
+
+
+@app.get("/api/is/{is_id}/zip")
+def is_zip(is_id: str) -> Response:
+    klasor = _is_klasoru(is_id)
+    tampon = io.BytesIO()
+    with zipfile.ZipFile(tampon, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in klasor.rglob("*"):
+            if p.is_file():
+                z.write(p, f"{is_id}/{p.relative_to(klasor)}")
+    return Response(
+        tampon.getvalue(), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="plaza-{is_id}.zip"'},
+    )
 
 
 @app.get("/api/dosya", response_class=PlainTextResponse)

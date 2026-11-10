@@ -12,6 +12,7 @@
     <div id="durum-rozeti" class="rozet">Hazır</div>
     <div class="bosluk"></div>
     <div id="anahtar-uyari" class="uyari gizli">API anahtarı yok — yalnızca simülasyon</div>
+    <button id="tema" class="ikon-btn" title="Temayı değiştir" aria-label="Temayı değiştir">◐</button>
   </header>
 
   <main class="duzen">
@@ -25,12 +26,20 @@
       <div id="gorunum-gorev" class="gorunum">
         <h2>CEO'ya görev ver</h2>
         <p class="aciklama">Tüm işler önce CEO'ya gelir. CEO planlar, departmanlara dağıtır, sonuçları değerlendirir.</p>
-        <textarea id="talep" rows="4" placeholder="Örn: Küçük bir kafe için web sitesi metinleri ve basit bir HTML sayfası hazırla"></textarea>
+        <div id="devam-cip" class="cip gizli"><span id="devam-yazi"></span><button id="devam-iptal" class="baglanti" aria-label="Devamı kaldır">✕</button></div>
+        <textarea id="talep" rows="4" placeholder="Örn: Küçük bir kafe için web sitesi metinleri ve basit bir HTML sayfası hazırla  (Ctrl+Enter ile gönder)"></textarea>
+        <div id="ekler" class="ekler"></div>
         <div class="satir">
-          <label class="kutu"><input type="checkbox" id="simulasyon"> Simülasyon <small>(Claude çağrılmaz)</small></label>
+          <label class="ek-btn" title="Metin dosyası ekle (.txt, .md, .csv, .json, kod…)">📎 Dosya ekle
+            <input type="file" id="ek-dosya" multiple hidden>
+          </label>
           <label>Revizyon
             <select id="revizyon"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option></select>
           </label>
+        </div>
+        <div class="satir">
+          <label class="kutu"><input type="checkbox" id="simulasyon"> Simülasyon <small>(Claude çağrılmaz)</small></label>
+          <label class="kutu" title="CEO'nun planı departmanlara gitmeden önce size gösterilir; düzenleyip onaylarsınız"><input type="checkbox" id="plan-onayi"> Planı önce bana göster</label>
         </div>
         <div class="satir">
           <button id="gonder" class="birincil">CEO'ya gönder</button>
@@ -39,9 +48,26 @@
         </div>
         <div id="hata" class="hata gizli"></div>
 
+        <div id="kuyruk-kap" class="gizli">
+          <h3>Sıradaki görevler</h3>
+          <ul id="kuyruk" class="kuyruk"></ul>
+        </div>
+
+        <div id="plan-duzenle" class="plan-duzenle gizli">
+          <h3>CEO'nun planı onayınızı bekliyor</h3>
+          <p id="onay-ozet" class="aciklama"></p>
+          <p class="aciklama">Aynı aşamadaki adımlar paralel çalışır. Çalışanı, görevi ve aşamayı değiştirebilir, adım ekleyip silebilirsiniz.</p>
+          <div id="onay-adimlar"></div>
+          <div class="satir">
+            <button id="onay-adim-ekle">+ Adım ekle</button>
+            <button id="onay-gonder" class="birincil">Onayla ve başlat</button>
+          </div>
+        </div>
+
         <h3>İş akışı</h3>
         <div id="plan-ozet" class="aciklama">Henüz görev yok.</div>
         <ol id="adimlar" class="adimlar"></ol>
+        <div id="is-ozet" class="is-ozet gizli"></div>
 
         <h3>Kayıt</h3>
         <ul id="kayit" class="kayit"></ul>
@@ -100,6 +126,7 @@
           </div>
         </div>
         <div id="masa-durum" class="masa-durum"></div>
+        <div id="masa-istatistik" class="aciklama"></div>
 
         <form id="masa-form">
           <label>İsim <input name="isim" required></label>
@@ -138,6 +165,10 @@
         <button id="modal-kapat" class="baglanti" aria-label="Kapat">✕</button>
       </div>
       <div id="modal-dosyalar" class="dosyalar"></div>
+      <div id="modal-eylemler" class="satir gizli">
+        <a id="modal-zip" class="dugme" download>⬇ ZIP indir</a>
+        <button id="modal-devam">↪ Bu işin üzerine devam et</button>
+      </div>
       <div id="modal-icerik" class="md"></div>
     </div>
   </div>
