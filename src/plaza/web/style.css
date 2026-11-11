@@ -260,3 +260,4 @@ details.bolum > summary .aciklama { text-transform: none; letter-spacing: 0; fon
 .sohbet .mesaj.bekliyor { opacity: .6; font-style: italic; }
 .onizleme { width: 100%; height: 60vh; border: 1px solid var(--cizgi); border-radius: 8px; background: #fff; }
 .kuyruk li small { color: var(--soluk); display: block; }
+.satir #sablon-sec { flex: 1 1 100%; width: 100%; min-width: 0; }

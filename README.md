@@ -4,6 +4,19 @@ Yapay zekâ çalışanlarından oluşan, CEO'nun yönettiği çok departmanlı b
 [CrewAI](https://github.com/crewAIInc/crewAI) üzerine kurulu; Claude, Gemini, DeepSeek ve
 bilgisayarınızda çalışan yerel modellerle (Ollama) çalışır.
 
+![Plaza Ofis — kuşbakışı ofis](docs/ekran/01-ofis.png)
+
+## Ekran görüntüleri
+
+| | |
+|---|---|
+| ![CEO'nun planı onay bekliyor](docs/ekran/02-plan-onayi.png) | ![Departmanlar paralel çalışırken](docs/ekran/03-calisirken.png) |
+| **Plan onayı:** CEO'nun aşamalı planını düzenleyip onaylayın. | **Çalışırken:** aynı aşamadaki departmanlar paralel çalışır. |
+| ![Üretilen sayfanın canlı önizlemesi](docs/ekran/04-html-onizleme.png) | ![Masa ayarları](docs/ekran/05-masa-ayarlari.png) |
+| **Sonuç:** üretilen HTML sayfaları güvenli çerçevede canlı açılır. | **Masa ayarları:** model, yedek model, rol ve araçlar. |
+| ![Ayarlar ve harcama](docs/ekran/06-ayarlar.png) | |
+| **Ayarlar:** istek hızı sınırları, canlı akış, fiyatlar ve aylık harcama. | |
+
 ## Organizasyon
 
 | Departman (anahtar) | Çalışanlar |

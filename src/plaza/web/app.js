@@ -648,7 +648,9 @@ function adimlariCiz() {
     const i = durum.isOzet;
     oz.textContent = `Toplam ${sureYaz(i.sure || 0)}` +
       (i.toplam_token ? ` · ${sayiKisa(i.toplam_token)} token (CEO ${sayiKisa(i.ceo_token || 0)})` : "") +
-      (i.toplam_token && i.toplam_maliyet != null ? ` · ${para(i.toplam_maliyet)}${i.maliyet_eksik ? " + fiyatı bilinmeyen kullanım" : ""}` : "");
+      (!i.toplam_token || i.toplam_maliyet == null ? ""
+        : i.maliyet_eksik ? (i.toplam_maliyet ? ` · en az ${para(i.toplam_maliyet)} (bazı modellerin fiyatı bilinmiyor)` : " · maliyet bilinmiyor (model fiyatı girilmemiş)")
+        : ` · ${para(i.toplam_maliyet)}`);
   }
 }
 

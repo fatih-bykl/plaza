@@ -5,3 +5,4 @@ cikti/
 ofis.json
 zamanlanmis.json
 .pytest_cache/
+dist/
