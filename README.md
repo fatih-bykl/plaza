@@ -50,8 +50,9 @@ masasında çalışan personel.
 - **ZIP indir:** Bir işin tüm dosyaları tek tıkla indirilebilir.
 - **Tema ve bildirim:** Üst çubuktaki ◐ ile açık/koyu tema; sekme arka plandayken iş bitince,
   hata olunca ya da plan onay beklerken tarayıcı bildirimi.
-- **Masaya tıklayınca:** o masada çalışacak yapay zekâ modeli (Opus / Sonnet / Haiku / Fable ya da
-  özel model kimliği), isim, rol, hedef, karakter/talimatlar, araçlar ve masanın aktifliği
+- **Masaya tıklayınca:** o masada çalışacak yapay zekâ modeli — Anthropic (Claude Opus / Sonnet /
+  Haiku / Fable), Google (Gemini 4 Carbon / 4 Argon / 3.8 Flash / 3.5 Flash-Lite), DeepSeek (V4 Pro /
+  Flash) ya da özel bir model kimliği, isim, rol, hedef, karakter/talimatlar, araçlar ve masanın aktifliği
   ayarlanır; o işte masaya verilen görevler ve çıktıları görülür. Ayarlar `ofis.json` dosyasına
   yazılır (YAML değişmez; "Varsayılana dön" ile silinir).
 - **Ofis düzeni:** Bir odanın etiketine ya da boş zeminine tıklayınca departman paneli açılır:
@@ -84,6 +85,18 @@ Ajanlar dosyalarını `cikti/` klasörüne yazar (`-o` ile değiştirilebilir); 
 Araçlar bu klasörün dışına erişemez.
 
 ## Model
+
+Her masa farklı bir sağlayıcının modelini kullanabilir. Gereken anahtarlar (`.env`):
+
+| Sağlayıcı | Anahtar | Model kimliği örneği |
+|---|---|---|
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic/claude-opus-5-5` |
+| Google | `GOOGLE_API_KEY` ya da `GEMINI_API_KEY` | `gemini/gemini-4-argon` |
+| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek/deepseek-v4-pro` |
+
+Anahtarı olmayan sağlayıcılar seçim listesinde işaretlenir; gerçek bir görev başlatılırken eksik
+anahtar varsa hangi masanın neye ihtiyaç duyduğu söylenir.
+
 
 Varsayılan model `anthropic/claude-opus-5-5`. `.env` içinde `PLAZA_MODEL`, ya da ayrı ayrı
 `PLAZA_MANAGER_MODEL` / `PLAZA_STAFF_MODEL` ile değiştirilebilir (ör. çalışanlar için `anthropic/claude-sonnet-5-5`).

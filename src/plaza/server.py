@@ -30,6 +30,9 @@ from .orchestrator import Durduruldu, IsAkisi
 from .settings import (
     MAX_MASA,
     MODELLER,
+    SAGLAYICILAR,
+    anahtar_durumu,
+    eksik_anahtarlar,
     departman_adlandir,
     departman_ekle,
     departman_kaldir,
@@ -116,7 +119,7 @@ app = FastAPI(title="Plaza Ofis")
 
 
 def _api_anahtari_var() -> bool:
-    return bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+    return any(anahtar_durumu().values())
 
 
 def _is_klasoru(is_id: str) -> Path:
@@ -139,6 +142,8 @@ def ofis() -> dict:
         "modeller": MODELLER,
         "araclar": list(TOOL_TYPES),
         "api_anahtari": _api_anahtari_var(),
+        "saglayicilar": {k: {"ad": v["ad"], "anahtarlar": v["anahtarlar"], "hazir": anahtar_durumu()[k]}
+                         for k, v in SAGLAYICILAR.items()},
         "max_masa": MAX_MASA,
     }
 
@@ -308,10 +313,17 @@ def _isi_yurut(is_: Is, office, ekler, onceki_sonuc: str) -> None:
 
 @app.post("/api/gorev")
 def gorev_ver(istek: GorevIstegi) -> dict:
-    if not istek.simulasyon and not _api_anahtari_var():
-        raise HTTPException(400, "ANTHROPIC_API_KEY tanımlı değil. .env dosyasına yazın ya da simülasyon modunu açın.")
-    if not load_office().aktif_calisanlar():
+    office = load_office()
+    if not office.aktif_calisanlar():
         raise HTTPException(400, "Ofiste aktif çalışan yok.")
+    if not istek.simulasyon:
+        eksik = eksik_anahtarlar(office)
+        if eksik:
+            raise HTTPException(
+                400,
+                "Şu masaların yapay zekâsı için API anahtarı yok — .env dosyasına ekleyin, masanın modelini "
+                "değiştirin ya da simülasyonu açın: " + "; ".join(eksik),
+            )
     if istek.onceki_is:
         _is_klasoru(istek.onceki_is)
     with yayin.kilit:

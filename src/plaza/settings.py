@@ -18,12 +18,52 @@ from .tools import TOOL_TYPES
 AYAR_DOSYASI = Path(os.getenv("PLAZA_OFIS_AYAR", "ofis.json"))
 DUZENLENEBILIR = {"isim", "model", "role", "goal", "backstory", "tools", "aktif"}
 
+# Sağlayıcılar: model kimliğinin öneki → gereken ortam değişkeni(leri)
+SAGLAYICILAR = {
+    "anthropic": {"ad": "Anthropic (Claude)", "anahtarlar": ["ANTHROPIC_API_KEY"]},
+    "google": {"ad": "Google (Gemini)", "anahtarlar": ["GOOGLE_API_KEY", "GEMINI_API_KEY"]},
+    "deepseek": {"ad": "DeepSeek", "anahtarlar": ["DEEPSEEK_API_KEY"]},
+}
+_ONEK = {"anthropic": "anthropic", "claude": "anthropic", "gemini": "google", "google": "google", "deepseek": "deepseek"}
+
 MODELLER = [
-    {"id": "anthropic/claude-opus-5-5", "ad": "Claude Opus 5.5", "kisa": "Opus 5.5"},
-    {"id": "anthropic/claude-sonnet-5-5", "ad": "Claude Sonnet 5.5", "kisa": "Sonnet 5.5"},
-    {"id": "anthropic/claude-haiku-5-5", "ad": "Claude Haiku 5.5", "kisa": "Haiku 5.5"},
-    {"id": "anthropic/claude-fable-5-1", "ad": "Claude Fable 5.1", "kisa": "Fable 5.1"},
+    {"id": "anthropic/claude-opus-5-5", "ad": "Claude Opus 5.5", "kisa": "Opus 5.5", "saglayici": "anthropic"},
+    {"id": "anthropic/claude-sonnet-5-5", "ad": "Claude Sonnet 5.5", "kisa": "Sonnet 5.5", "saglayici": "anthropic"},
+    {"id": "anthropic/claude-haiku-5-5", "ad": "Claude Haiku 5.5", "kisa": "Haiku 5.5", "saglayici": "anthropic"},
+    {"id": "anthropic/claude-fable-5-1", "ad": "Claude Fable 5.1", "kisa": "Fable 5.1", "saglayici": "anthropic"},
+    {"id": "gemini/gemini-4-carbon", "ad": "Gemini 4 Carbon", "kisa": "Gemini 4 Carbon", "saglayici": "google"},
+    {"id": "gemini/gemini-4-argon", "ad": "Gemini 4 Argon", "kisa": "Gemini 4 Argon", "saglayici": "google"},
+    {"id": "gemini/gemini-3.8-flash", "ad": "Gemini 3.8 Flash", "kisa": "Gemini 3.8 Flash", "saglayici": "google"},
+    {"id": "gemini/gemini-3.5-flash-lite", "ad": "Gemini 3.5 Flash-Lite", "kisa": "Gemini Flash-Lite", "saglayici": "google"},
+    {"id": "deepseek/deepseek-v4-pro", "ad": "DeepSeek V4 Pro", "kisa": "DeepSeek V4 Pro", "saglayici": "deepseek"},
+    {"id": "deepseek/deepseek-flash", "ad": "DeepSeek Flash", "kisa": "DeepSeek Flash", "saglayici": "deepseek"},
 ]
+
+
+def saglayici(model: str) -> str | None:
+    """'gemini/gemini-4-argon' → 'google'. Bilinmeyen önek için None."""
+    onek = model.split("/", 1)[0].lower() if "/" in model else ("anthropic" if model.startswith("claude-") else "")
+    return _ONEK.get(onek)
+
+
+def anahtar_var(saglayici_adi: str) -> bool:
+    return any(os.getenv(k, "").strip() for k in SAGLAYICILAR[saglayici_adi]["anahtarlar"])
+
+
+def anahtar_durumu() -> dict[str, bool]:
+    return {s: anahtar_var(s) for s in SAGLAYICILAR}
+
+
+def eksik_anahtarlar(office: "Office") -> list[str]:
+    """Aktif masaların (ve CEO'nun) modelleri için tanımlı olmayan API anahtarları."""
+    eksik = []
+    for d in [office.ceo, *office.aktif_calisanlar()]:
+        s = saglayici(d.model)
+        if s and not anahtar_var(s):
+            mesaj = f"{d.isim} ({SAGLAYICILAR[s]['ad']}): {' veya '.join(SAGLAYICILAR[s]['anahtarlar'])}"
+            if mesaj not in eksik:
+                eksik.append(mesaj)
+    return eksik
 
 MAX_MASA = 6  # bir odaya sığan masa sayısı
 

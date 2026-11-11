@@ -49,6 +49,26 @@ function modelKisa(id) {
   const m = durum.ofis?.modeller.find((x) => x.id === id);
   return m ? m.kisa : id.split("/").pop();
 }
+/* Model seçimi: sağlayıcıya göre gruplu; anahtarı olmayan sağlayıcılar işaretlenir */
+function modelSecenekleri(sec, ozelEkle = false) {
+  const gruplar = Object.entries(durum.ofis.saglayicilar).map(([key, sg]) => {
+    const g = document.createElement("optgroup");
+    g.label = sg.hazir ? sg.ad : `${sg.ad} — API anahtarı yok`;
+    g.append(...durum.ofis.modeller.filter((m) => m.saglayici === key).map((m) => new Option(m.ad, m.id)));
+    return g;
+  });
+  sec.replaceChildren(...gruplar);
+  if (ozelEkle) sec.append(new Option("Özel model…", "__ozel"));
+}
+
+function modelUyarisi(modelId) {
+  const m = durum.ofis.modeller.find((x) => x.id === modelId);
+  const sg = m && durum.ofis.saglayicilar[m.saglayici];
+  const kap = $("#model-uyari");
+  kap.classList.toggle("gizli", !sg || sg.hazir);
+  if (sg && !sg.hazir) kap.textContent = `Bu model için .env dosyasına ${sg.anahtarlar.join(" veya ")} eklenmeli (simülasyonda gerekmez).`;
+}
+
 async function api(yol, secenek = {}) {
   const r = await fetch(yol, { headers: { "Content-Type": "application/json" }, ...secenek });
   if (!r.ok) {
@@ -396,7 +416,7 @@ function departmanPaneliDoldur() {
     ul.appendChild(li);
   }
   const f = $("#yeni-masa-form");
-  if (!f.model.options.length) f.model.replaceChildren(...durum.ofis.modeller.map((m) => new Option(m.ad, m.id)));
+  if (!f.model.options.length) modelSecenekleri(f.model);
   const dolu = d.staff.length >= durum.ofis.max_masa;
   f.querySelector("button[type=submit]").disabled = dolu;
   $("#dep-dolu").classList.toggle("gizli", !dolu);
@@ -454,11 +474,12 @@ function masaPaneliDoldur() {
   const f = $("#masa-form");
   f.isim.value = k.isim; f.role.value = k.role; f.goal.value = k.goal; f.backstory.value = k.backstory;
   const sec = f.model_secim;
-  sec.replaceChildren(...durum.ofis.modeller.map((m) => new Option(m.ad, m.id)), new Option("Özel model…", "__ozel"));
+  modelSecenekleri(sec, true);
   const hazir = durum.ofis.modeller.some((m) => m.id === k.model);
   sec.value = hazir ? k.model : "__ozel";
   f.model_ozel.value = hazir ? "" : k.model;
   $("#ozel-model-kap").classList.toggle("gizli", hazir);
+  modelUyarisi(k.model);
 
   $("#arac-kap").classList.toggle("gizli", ceo);
   $("#aktif-kap").classList.toggle("gizli", ceo);
@@ -491,6 +512,7 @@ function masaPaneliDoldur() {
 
 $("#masa-form").model_secim.addEventListener("change", (e) => {
   $("#ozel-model-kap").classList.toggle("gizli", e.target.value !== "__ozel");
+  modelUyarisi(e.target.value);
 });
 
 $("#masa-form").addEventListener("submit", async (e) => {
