@@ -18,7 +18,7 @@ from .office import DEFAULT_MODEL, load_org
 from .tools import TOOL_TYPES
 
 AYAR_DOSYASI = Path(os.getenv("PLAZA_OFIS_AYAR", "ofis.json"))
-DUZENLENEBILIR = {"isim", "model", "role", "goal", "backstory", "tools", "aktif"}
+DUZENLENEBILIR = {"isim", "model", "yedek_model", "role", "goal", "backstory", "tools", "aktif"}
 
 # Sağlayıcılar: model kimliğinin öneki → gereken ortam değişkeni(leri)
 SAGLAYICILAR = {
@@ -185,6 +185,7 @@ class Desk:
     model: str
     tools: list[str] = field(default_factory=list)
     aktif: bool = True
+    yedek_model: str = ""  # ana model kalıcı hata verirse devralan model (isteğe bağlı)
     ozel: bool = False  # ofis.json'da kullanıcı ayarı var mı
     eklenen: bool = False  # arayüzden eklenmiş masa mı
 
@@ -283,6 +284,7 @@ def load_office(org_file: Path | None = None, ayar_dosyasi: Path = AYAR_DOSYASI)
                     isim=s.get("isim") or s["role"], role=s["role"], goal=(s.get("goal") or "").strip(),
                     backstory=(s.get("backstory") or "").strip(), model=s.get("model") or staff_model,
                     tools=list(s.get("tools", [])), eklenen=bool(s.get("_ozel")),
+                    yedek_model=s.get("yedek_model") or "",
                 ),
                 ayar.get(s["key"]),
             )
@@ -403,6 +405,8 @@ def masa_ekle(dkey: str, degerler: dict, ayar_dosyasi: Path = AYAR_DOSYASI) -> s
             "tools": tools,
             "model": str(degerler.get("model", "")).strip() or None,
         }
+        if degerler.get("yedek_model"):
+            ayar[EK_CALISAN][key]["yedek_model"] = str(degerler["yedek_model"]).strip()
         _yaz(ayar, ayar_dosyasi)
     return key
 
@@ -427,3 +431,155 @@ def masa_kaldir(key: str, ayar_dosyasi: Path = AYAR_DOSYASI) -> None:
 def ofisi_sifirla(ayar_dosyasi: Path = AYAR_DOSYASI) -> None:
     with _kilit:
         ayar_dosyasi.unlink(missing_ok=True)
+
+
+# ------------------------------------------------------------- genel ayarlar
+GENEL = "_genel"
+
+# Milyon token başına (giriş, çıkış) USD. Claude: Anthropic'in resmî fiyatları.
+# Gemini ve DeepSeek: üçüncü taraf kaynaklardan tahmini (Kasım 2026); arayüzden düzeltilebilir.
+# None = bilinmiyor (maliyet hesaplanmaz).
+VARSAYILAN_FIYATLAR: dict[str, list[float] | None] = {
+    "anthropic/claude-opus-5-5": [4.0, 20.0],
+    "anthropic/claude-sonnet-5-5": [2.0, 10.0],
+    "anthropic/claude-haiku-5-5": [0.10, 0.50],
+    "anthropic/claude-fable-5-1": [10.0, 50.0],
+    "gemini/gemini-4-carbon": None,
+    "gemini/gemini-4-argon": [2.0, 10.0],
+    "gemini/gemini-3.8-flash": [0.75, 3.75],
+    "gemini/gemini-3.5-flash-lite": None,
+    "deepseek/deepseek-v4-pro": [1.32, 3.96],
+    "deepseek/deepseek-flash": [0.30, 1.20],
+}
+TAHMINI_FIYAT = {"gemini", "deepseek"}  # önek: bu sağlayıcıların fiyatları tahmini
+
+VARSAYILAN_GENEL = {
+    # Dakikadaki en fazla istek (0 = sınırsız). Google ücretsiz katmanı Flash-Lite için 15/dk.
+    "hiz": {"anthropic": 0, "google": 12, "deepseek": 0, "yerel": 0},
+    "fiyatlar": {},          # kullanıcının düzelttiği fiyatlar (model → [giriş, çıkış])
+    "canli_akis": True,      # çalışanların yazdıkları canlı gösterilsin
+}
+
+
+def genel_ayarlar(ayar_dosyasi: Path | None = None) -> dict:
+    kayitli = _ayarlari_oku(ayar_dosyasi or AYAR_DOSYASI).get(GENEL, {})
+    sonuc = json.loads(json.dumps(VARSAYILAN_GENEL))
+    sonuc["hiz"].update(kayitli.get("hiz", {}))
+    sonuc["fiyatlar"].update(kayitli.get("fiyatlar", {}))
+    if "canli_akis" in kayitli:
+        sonuc["canli_akis"] = bool(kayitli["canli_akis"])
+    return sonuc
+
+
+def genel_ayarlari_kaydet(degerler: dict, ayar_dosyasi: Path | None = None) -> dict:
+    yol = ayar_dosyasi or AYAR_DOSYASI
+    with _kilit:
+        ayar = _ayarlari_oku(yol)
+        g = ayar.setdefault(GENEL, {})
+        if "hiz" in degerler:
+            g.setdefault("hiz", {}).update(
+                {k: max(0, int(v or 0)) for k, v in degerler["hiz"].items() if k in SAGLAYICILAR})
+        if "fiyatlar" in degerler:
+            f = g.setdefault("fiyatlar", {})
+            for model, deger in degerler["fiyatlar"].items():
+                if deger is None:
+                    f.pop(model, None)
+                else:
+                    f[model] = [max(0.0, float(deger[0])), max(0.0, float(deger[1]))]
+        if "canli_akis" in degerler:
+            g["canli_akis"] = bool(degerler["canli_akis"])
+        _yaz(ayar, yol)
+    return genel_ayarlar(yol)
+
+
+def fiyat(model: str, genel: dict | None = None) -> list[float] | None:
+    """Milyon token başına [giriş, çıkış] USD; yerel modeller ücretsiz; bilinmiyorsa None."""
+    if saglayici(model) == "yerel":
+        return [0.0, 0.0]
+    genel = genel or genel_ayarlar()
+    return genel["fiyatlar"].get(model) or VARSAYILAN_FIYATLAR.get(model)
+
+
+def maliyet(model: str, giris: int, cikis: int, genel: dict | None = None) -> float | None:
+    f = fiyat(model, genel)
+    if f is None:
+        return None
+    return round((giris * f[0] + cikis * f[1]) / 1_000_000, 6)
+
+
+# ------------------------------------------------------------- departman şablonları
+def _calisan(isim, role, goal, backstory, tools=("file_read", "file_write")):
+    return {"isim": isim, "role": role, "goal": goal, "backstory": backstory, "tools": list(tools)}
+
+
+DEPARTMAN_SABLONLARI = {
+    "web_ajansi": {
+        "ad": "Web Ajansı",
+        "aciklama": "Tasarım, ön yüz geliştirme ve SEO",
+        "calisanlar": [
+            _calisan("Defne", "UI/UX Tasarımcısı",
+                     "Kullanıcı dostu, estetik ve erişilebilir arayüz tasarımları ve tasarım kararları üretmek.",
+                     "Renk, tipografi ve yerleşim konusunda deneyimli bir tasarımcısın; kararlarını gerekçelendirirsin."),
+            _calisan("Kerem", "Ön Yüz Geliştirici",
+                     "Tasarımları temiz, duyarlı (responsive) HTML/CSS/JavaScript koduna dönüştürmek.",
+                     "Standartlara uygun, hızlı ve erişilebilir web sayfaları yazan bir geliştiricisin.",
+                     ("file_read", "file_write", "list_files")),
+            _calisan("Sena", "SEO Uzmanı",
+                     "Sayfaların arama motorlarında görünürlüğünü artıracak içerik ve teknik öneriler sunmak.",
+                     "Anahtar kelime, meta etiketler ve site yapısı konusunda uzman bir SEO danışmanısın.",
+                     ("file_read", "file_write", "web_ara", "web_oku")),
+        ],
+    },
+    "pazarlama": {
+        "ad": "Pazarlama Departmanı",
+        "aciklama": "Strateji, sosyal medya ve reklam metinleri",
+        "calisanlar": [
+            _calisan("Ozan", "Pazarlama Stratejisti",
+                     "Hedef kitleyi, konumlandırmayı ve kanal stratejisini belirleyen pazarlama planları hazırlamak.",
+                     "Veriye dayalı düşünen, ölçülebilir hedefler koyan bir stratejistsin.",
+                     ("file_read", "file_write", "web_ara", "web_oku")),
+            _calisan("İpek", "Sosyal Medya Uzmanı",
+                     "Platformlara uygun, etkileşim getiren sosyal medya içerikleri ve takvimleri hazırlamak.",
+                     "Trendleri yakından takip eden, markanın sesini koruyan bir içerik üreticisisin."),
+            _calisan("Emre", "Reklam Metin Yazarı",
+                     "Dönüşüm odaklı, akılda kalıcı reklam metinleri ve sloganlar yazmak.",
+                     "Kısa ve vurucu cümleler kuran, farklı tonlarda alternatifler sunan bir metin yazarısın."),
+        ],
+    },
+    "hukuk": {
+        "ad": "Hukuk Departmanı",
+        "aciklama": "Sözleşme ve uyumluluk incelemesi",
+        "calisanlar": [
+            _calisan("Leyla", "Hukuk Danışmanı",
+                     "Talepleri hukuki riskler ve mevzuat uyumu açısından değerlendirmek.",
+                     "Dikkatli ve temkinli bir hukukçusun; kesin hukuki görüş yerine riskleri ve dikkat edilmesi "
+                     "gerekenleri belirtir, gerektiğinde avukata danışılmasını önerirsin."),
+            _calisan("Tarık", "Sözleşme Uzmanı",
+                     "Açık, dengeli ve eksiksiz sözleşme taslakları ve maddeleri hazırlamak.",
+                     "Sözleşme maddelerini sade bir dille yazan, belirsizlik bırakmayan bir uzmansın."),
+        ],
+    },
+    "muhasebe": {
+        "ad": "Muhasebe ve Finans",
+        "aciklama": "Bütçe, maliyet ve finansal analiz",
+        "calisanlar": [
+            _calisan("Nil", "Mali Analist",
+                     "Bütçe, maliyet ve kârlılık analizleri yapmak; finansal senaryolar hazırlamak.",
+                     "Rakamlarla düşünen, varsayımlarını açıkça yazan bir analistsin."),
+            _calisan("Hakan", "Muhasebeci",
+                     "Gelir-gider tabloları, fatura ve vergi konularında düzenli ve doğru kayıtlar hazırlamak.",
+                     "Titiz bir muhasebecisin; kesin vergi tavsiyesi yerine genel bilgi verir, "
+                     "gerektiğinde mali müşavire danışılmasını önerirsin."),
+        ],
+    },
+}
+
+
+def sablon_uygula(sablon_id: str, ayar_dosyasi: Path = AYAR_DOSYASI) -> str:
+    sablon = DEPARTMAN_SABLONLARI.get(sablon_id)
+    if not sablon:
+        raise KeyError(sablon_id)
+    dkey = departman_ekle(sablon["ad"], ayar_dosyasi)
+    for c in sablon["calisanlar"]:
+        masa_ekle(dkey, c, ayar_dosyasi)
+    return dkey

@@ -1,6 +1,8 @@
 # Plaza
 
-Claude modelleriyle çalışan, departmanlardan oluşan bir ajan ofisi. [CrewAI](https://github.com/crewAIInc/crewAI) üzerine kurulu.
+Yapay zekâ çalışanlarından oluşan, CEO'nun yönettiği çok departmanlı bir ajan ofisi.
+[CrewAI](https://github.com/crewAIInc/crewAI) üzerine kurulu; Claude, Gemini, DeepSeek ve
+bilgisayarınızda çalışan yerel modellerle (Ollama) çalışır.
 
 ## Organizasyon
 
@@ -12,88 +14,97 @@ Claude modelleriyle çalışan, departmanlardan oluşan bir ajan ofisi. [CrewAI]
 | `arastirma` | Araştırmacı Analist |
 | `icerik` | İçerik Yazarı, Editör |
 
-Bunların üstünde, tüm işlerin önce geldiği ve işi dağıtan bir **CEO** var.
-Departman eklemek ya da değiştirmek için `src/plaza/config/departments.yaml` dosyasını düzenleyin.
+Bunların üstünde, tüm işlerin önce geldiği ve işi dağıtan bir **CEO** var. Varsayılan düzen
+`src/plaza/config/departments.yaml` dosyasındadır; arayüzden yapılan değişiklikler `ofis.json`'a yazılır.
 
 ## Kurulum
 
 ```bash
 uv sync
-cp .env.example .env   # ardından ANTHROPIC_API_KEY değerini yazın
+cp .env.example .env   # en az bir sağlayıcının anahtarını yazın (ya da yerel model kullanın)
 ```
 
-## Ofis arayüzü (grafik)
+## Ofis arayüzü
 
 ```bash
 uv run plaza-ofis        # http://127.0.0.1:8770 açılır (--port, --tarayici-acma)
 ```
 
-Kuşbakışı bir ofis açılır: ortada **CEO Odası**, çevresinde departman odaları, her odada
-masasında çalışan personel.
+Kuşbakışı bir ofis açılır: ortada **CEO Odası**, çevresinde departman odaları, her odada masasında
+çalışan personel.
 
-- **Görev akışı:** Görevler her zaman önce CEO'ya verilir. CEO talebi inceler, hangi çalışanın
-  hangi sırayla ne yapacağını planlar; görev kâğıtları masalara uçar. Her çalışan kendisinden
-  önceki çıktıları değerlendirip kendi katkısını ekler. CEO sonuçları değerlendirir, gerekirse
-  revizyon ister (0–2 tur), sonra nihai teslimatı yazar.
-- **Paralel aşamalar:** CEO planı aşamalara böler. Aynı aşamadaki görevler aynı anda çalışır ve
-  yalnızca önceki aşamaların çıktılarını görür; bağımlı işler sonraki aşamalara konur.
-- **Planı önce bana göster:** İşaretlenirse CEO'nun planı departmanlara gitmeden önce panelde
-  açılır; çalışanı, görevi ve aşamayı değiştirebilir, adım ekleyip silebilir, sonra onaylarsınız.
-- **Görev kuyruğu:** CEO çalışırken verilen görevler sıraya girer ve sırayla başlar; sıradaki bir
-  görev listeden çıkarılabilir.
-- **Ek dosyalar:** 📎 ile metin dosyaları (en fazla 10 dosya, her biri 200.000 karakter) eklenir.
-  `girdi/` klasörüne kaydedilir; CEO ve çalışanlar içeriklerini görür.
-- **Devam görevi:** Bir iş sonucunda ya da geçmişte "Bu işin üzerine devam et" denirse yeni
-  görev önceki işin sonucunu bağlam olarak alır; önceki dosyalar `onceki/` altına kopyalanır.
-- **İstatistikler:** Her adımın süresi ve token kullanımı, işin toplamı ve masa panelinde o
-  masanın tüm zamanlar toplamı (simülasyonlar hariç) gösterilir.
-- **ZIP indir:** Bir işin tüm dosyaları tek tıkla indirilebilir.
-- **Tema ve bildirim:** Üst çubuktaki ◐ ile açık/koyu tema; sekme arka plandayken iş bitince,
-  hata olunca ya da plan onay beklerken tarayıcı bildirimi.
-- **Masaya tıklayınca:** o masada çalışacak yapay zekâ modeli — Anthropic (Claude Opus / Sonnet /
-  Haiku / Fable), Google (Gemini 4 Carbon / 4 Argon / 3.8 Flash / 3.5 Flash-Lite), DeepSeek (V4 Pro /
-  Flash) ya da özel bir model kimliği, isim, rol, hedef, karakter/talimatlar, araçlar ve masanın aktifliği
-  ayarlanır; o işte masaya verilen görevler ve çıktıları görülür. Ayarlar `ofis.json` dosyasına
-  yazılır (YAML değişmez; "Varsayılana dön" ile silinir).
-- **Ofis düzeni:** Bir odanın etiketine ya da boş zeminine tıklayınca departman paneli açılır:
-  departmanı yeniden adlandırın, yeni masa (çalışan) ekleyin (odada en fazla 6 masa) ya da
-  departmanı kaldırın. Etiketteki **+** düğmesi doğrudan masa ekler. Boş hücredeki
-  **Yeni departman** alanı (ya da paneldeki "+ Departman ekle") yeni oda açar. Masa panelindeki
-  "Masayı kaldır" çalışanı ofisten çıkarır. Tüm bunlar `ofis.json`'a yazılır; "Ofisi varsayılana
-  döndür" her şeyi YAML'daki haline getirir. (Komut satırı `plaza` yalnızca YAML'ı kullanır.)
-- **Simülasyon:** Claude çağırmadan tüm akışı sahte çıktılarla dener (API anahtarı yoksa zorunlu).
-- Her iş `cikti/<tarih-saat>/` klasörüne kaydedilir (`SONUC.md`, ajanların dosyaları, `is.json`);
-  "Geçmiş işler" listesinden tekrar açılabilir.
+### Görev akışı
+- **CEO önce:** Görevler her zaman önce CEO'ya verilir. CEO talebi inceler ve aşamalı bir plan
+  çıkarır; basit işlerde 1-2 çalışanla yetinir. Görev kâğıtları masalara uçar.
+- **Paralel aşamalar:** Aynı aşamadaki görevler aynı anda çalışır ve yalnızca önceki aşamaların
+  çıktılarını görür; bağımlı işler sonraki aşamalara konur.
+- **Değerlendirme:** CEO sonuçları değerlendirir, gerekirse revizyon ister (0–2 tur), sonra nihai
+  teslimatı yazar.
+- **Planı önce bana göster:** CEO'nun planı departmanlara gitmeden önce panelde açılır; çalışanı,
+  görevi ve aşamayı değiştirebilir, adım ekleyip silebilirsiniz.
+- **Canlı çıktı:** Çalışanların yazdıkları, onlar yazarken iş akışında ve masa panelinde görünür.
+
+### Sağlamlık
+- **Kaldığı yerden devam:** Hata veren ya da durdurulan bir iş "↻ Kaldığı yerden devam et" ile
+  sürdürülür; biten adımlar yeniden yapılmaz, dosyalar korunur. Geçmiş işlerden de yapılabilir.
+- **Yeniden deneme:** Geçici hatalarda (sunucu yoğun, dakikalık istek sınırı, bağlantı kopması)
+  adım 3 kez yeniden denenir; kalıcı hatalarda (kota sıfır, kredi yok, geçersiz anahtar) beklemeden
+  durulur ve Türkçe açıklama verilir.
+- **İstek hızı sınırı:** Sağlayıcı başına "dakikada en fazla X istek" (Ayarlar). Sınır dolunca
+  Plaza hata almak yerine bekler. Google için varsayılan 12/dk (ücretsiz katman 15/dk).
+- **Yedek model:** Her masaya isteğe bağlı bir yedek yapay zekâ seçilir; ana model kalıcı hata
+  verirse yedek devralır (ör. Gemini kotası biterse yerel DeepSeek).
+
+### Masalar ve ofis düzeni
+- **Masaya tıklayınca:** yapay zekâ modeli ve yedeği, isim, rol, hedef, karakter/talimatlar,
+  araçlar ve aktiflik ayarlanır; o işteki görevleri, canlı çıktısı ve tüm zamanlar istatistiği
+  görülür. **Sohbet** bölümünden çalışana CEO akışı dışında doğrudan soru sorulabilir.
+- **Araçlar:** dosya okuma/yazma/listeleme, **Web'de arama** ve **Web sayfası okuma** (yerel ağ
+  adresleri engellenir), **Python çalıştırma** (kod çalışma klasöründe, 30 sn sınırıyla ve API
+  anahtarları olmadan çalışır; kod bu bilgisayarda çalıştığı için varsayılan olarak kapalıdır).
+- **Departmanlar:** Oda etiketine ya da zeminine tıklayıp yeniden adlandırın, masa ekleyin (en fazla
+  6), kaldırın. **Şablonlar** ile tek tıkla Web Ajansı, Pazarlama, Hukuk ya da Muhasebe ve Finans
+  departmanı kurulur. "Ofisi varsayılana döndür" her şeyi YAML'daki hâline getirir.
+- **🏆 Proje sayısı:** Her oda etiketinde o departmanın başarıyla bitirdiği proje sayısı; tıklayınca
+  projeler listelenir.
+
+### Görevler ve sonuçlar
+- **Görev şablonları:** Web sayfası, araştırma raporu, sosyal medya, kod inceleme, e-posta, özet.
+- **Görev kuyruğu:** CEO çalışırken verilen görevler sıraya girer.
+- **Zamanlanmış görevler:** Belirli saatte (isteğe bağlı belirli günlerde) CEO'ya kendiliğinden görev
+  verilir. Plaza Ofis açık olmalıdır; kapalıyken kaçan görevler sonradan çalıştırılmaz.
+- **Ek dosyalar:** 📎 ile metin dosyaları eklenir (`girdi/`); **Devam görevi** önceki işin sonucunu
+  ve dosyalarını (`onceki/`) bağlam olarak alır.
+- **Sonuçlar:** Her iş `cikti/<tarih-saat>/` klasörüne kaydedilir (`SONUC.md`, ajanların dosyaları,
+  `is.json`). HTML dosyaları güvenli bir çerçevede **canlı önizlenir**; tüm dosyalar ZIP olarak indirilir.
+- **Maliyet:** Her adımın ve işin süresi, token'ı ve tahmini maliyeti; "Ayarlar ve harcama"
+  bölümünde aylık harcama. Claude fiyatları resmîdir; Gemini ve DeepSeek fiyatları üçüncü taraf
+  kaynaklardan tahminidir ve arayüzden düzeltilebilir. Yerel modeller ücretsizdir.
+- **Simülasyon:** Yapay zekâ çağırmadan tüm akışı sahte çıktılarla dener.
 
 ## Komut satırı
 
+Arayüzle aynı ayarları (`ofis.json`) ve aynı CEO akışını kullanır.
+
 ```bash
-# Hiyerarşik (varsayılan): Genel Müdür işi uygun çalışanlara dağıtır ve denetler
-uv run plaza "Python ile basit bir yapılacaklar listesi CLI uygulaması yap"
-
-# Sıralı: seçilen departmanlar verilen sırayla, birbirinin çıktısını alarak çalışır
-uv run plaza -s sirali -d urun -d yazilim -d kalite "Yapılacaklar listesi CLI uygulaması"
-
-# Araştırma + içerik ekibiyle rapor hazırlama
-uv run plaza -d arastirma -d icerik "Küçük işletmeler için yapay zekâ kullanım alanları raporu"
-
-uv run plaza --liste    # departmanları göster
-uv run plaza --kuru "…" # ekibi kur, Claude'u çağırma
+uv run plaza "Küçük işletmeler için yapay zekâ kullanım alanları raporu"
+uv run plaza -d arastirma -d icerik -r 0 "…"   # yalnızca bu departmanlar, revizyon yok
+uv run plaza --liste                            # departmanlar, çalışanlar ve modelleri
+uv run plaza --kuru "…"                         # simülasyon
 ```
 
-Ajanlar dosyalarını `cikti/` klasörüne yazar (`-o` ile değiştirilebilir); nihai sonuç `cikti/SONUC.md` dosyasına kaydedilir.
-Araçlar bu klasörün dışına erişemez.
+## Modeller
 
-## Model
-
-Her masa farklı bir sağlayıcının modelini kullanabilir. Gereken anahtarlar (`.env`):
-
-| Sağlayıcı | Anahtar | Model kimliği örneği |
+| Sağlayıcı | Anahtar (`.env`) | Model kimliği örneği |
 |---|---|---|
 | Anthropic | `ANTHROPIC_API_KEY` | `anthropic/claude-opus-5-5` |
-| Google | `GOOGLE_API_KEY` ya da `GEMINI_API_KEY` | `gemini/gemini-4-argon` |
+| Google | `GOOGLE_API_KEY` ya da `GEMINI_API_KEY` | `gemini/gemini-3.5-flash-lite` |
 | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek/deepseek-v4-pro` |
 | Yerel (Ollama) | gerekmez | `ollama/deepseek-r1:8b` |
+
+Anahtarı olmayan sağlayıcılar seçim listesinde işaretlenir; gerçek bir görev başlatılırken eksik
+anahtar varsa hangi masanın neye ihtiyaç duyduğu söylenir. Google'ın ücretsiz katmanında bazı
+modellerin (ör. Gemini 4 Argon) kotası sıfırdır.
 
 ### API'siz yerel DeepSeek (Ollama)
 
@@ -106,13 +117,16 @@ sudo systemctl enable --now ollama
 ollama pull deepseek-r1:8b          # ya da deepseek-r1:14b
 ```
 
-Ardından masada "Yerel — Ollama" grubundan modeli seçin. Ollama'da kurulu başka modeller de
-listede otomatik görünür. Not: DeepSeek R1 araç çağırmayı desteklemez; bu masalar dosya yazamaz,
-dosya içeriklerini çıktılarında verir. Modelin `<think>` düşünce bölümleri çıktıdan temizlenir.
+Ollama'da kurulu diğer modeller de listede kendiliğinden görünür. Araç çağırmayı desteklemeyen
+yerel modellerde dosya araçları kapatılır; modelin `<think>` düşünce bölümleri çıktıdan temizlenir.
+Uzun işler için metin penceresini büyütmek isterseniz (`OLLAMA_CONTEXT_LENGTH`, ör. 8192) Ollama
+servisine ayar ekleyin.
 
-Anahtarı olmayan sağlayıcılar seçim listesinde işaretlenir; gerçek bir görev başlatılırken eksik
-anahtar varsa hangi masanın neye ihtiyaç duyduğu söylenir.
+Masa ayarı yapılmamış çalışanların varsayılan modeli `anthropic/claude-opus-5-5`'tir; `.env` içinde
+`PLAZA_MODEL` ya da ayrı ayrı `PLAZA_MANAGER_MODEL` / `PLAZA_STAFF_MODEL` ile değiştirilebilir.
 
+## Geliştirme
 
-Varsayılan model `anthropic/claude-opus-5-5`. `.env` içinde `PLAZA_MODEL`, ya da ayrı ayrı
-`PLAZA_MANAGER_MODEL` / `PLAZA_STAFF_MODEL` ile değiştirilebilir (ör. çalışanlar için `anthropic/claude-sonnet-5-5`).
+```bash
+uv run pytest          # testler; gerçek ayarlara ve API anahtarlarına dokunmaz
+```

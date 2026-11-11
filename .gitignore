@@ -2,3 +2,6 @@
 .env
 __pycache__/
 cikti/
+ofis.json
+zamanlanmis.json
+.pytest_cache/

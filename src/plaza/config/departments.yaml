@@ -4,7 +4,8 @@
 # manager: CEO. Tüm işler önce ona gelir; işi departmanlara dağıtır ve sonucu denetler.
 # isim: Ofis arayüzünde masada görünen çalışan adı.
 # departments: Her departmanın çalışanları (ajanları).
-#   tools: file_read, file_write, list_files (yalnızca çalışma klasörünün içinde çalışır)
+#   tools: file_read, file_write, list_files (yalnızca çalışma klasörünün içinde çalışır),
+#          web_ara, web_oku (internet), python_calistir (kodu bu bilgisayarda çalıştırır)
 
 manager:
   isim: Deniz Aksoy
@@ -64,7 +65,7 @@ departments:
         backstory: >
           Meraklı ve şüpheci bir analistsin. Bildiklerini kaynak ve varsayımlarıyla birlikte sunar,
           emin olmadığın yerde bunu açıkça belirtirsin.
-        tools: [file_read, file_write]
+        tools: [file_read, file_write, web_ara, web_oku]
 
   icerik:
     name: İçerik Departmanı

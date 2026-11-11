@@ -27,6 +27,7 @@
         <h2>CEO'ya görev ver</h2>
         <p class="aciklama">Tüm işler önce CEO'ya gelir. CEO planlar, departmanlara dağıtır, sonuçları değerlendirir.</p>
         <div id="devam-cip" class="cip gizli"><span id="devam-yazi"></span><button id="devam-iptal" class="baglanti" aria-label="Devamı kaldır">✕</button></div>
+        <div id="gorev-sablonlari" class="sablon-cipleri" aria-label="Hazır görev şablonları"></div>
         <textarea id="talep" rows="4" placeholder="Örn: Küçük bir kafe için web sitesi metinleri ve basit bir HTML sayfası hazırla  (Ctrl+Enter ile gönder)"></textarea>
         <div id="ekler" class="ekler"></div>
         <div class="satir">
@@ -38,7 +39,7 @@
           </label>
         </div>
         <div class="satir">
-          <label class="kutu"><input type="checkbox" id="simulasyon"> Simülasyon <small>(Claude çağrılmaz)</small></label>
+          <label class="kutu"><input type="checkbox" id="simulasyon"> Simülasyon <small>(yapay zekâ çağrılmaz)</small></label>
           <label class="kutu" title="CEO'nun planı departmanlara gitmeden önce size gösterilir; düzenleyip onaylarsınız"><input type="checkbox" id="plan-onayi"> Planı önce bana göster</label>
         </div>
         <div class="satir">
@@ -47,6 +48,10 @@
           <button id="sonuc-gor" class="gizli">Sonucu gör</button>
         </div>
         <div id="hata" class="hata gizli"></div>
+        <div id="devam-kap" class="satir gizli">
+          <button id="devam-et" class="birincil">↻ Kaldığı yerden devam et</button>
+          <span class="aciklama">Biten adımlar yeniden yapılmaz.</span>
+        </div>
 
         <div id="kuyruk-kap" class="gizli">
           <h3>Sıradaki görevler</h3>
@@ -75,12 +80,52 @@
         <h3>Geçmiş işler</h3>
         <ul id="gecmis" class="gecmis"></ul>
 
-        <h3>Ofis düzeni</h3>
-        <p class="aciklama">Bir odanın boş zeminine tıklayarak departmanı yönetin, masa ekleyin.</p>
-        <div class="satir">
-          <button id="departman-ekle">+ Departman ekle</button>
-          <button id="ofis-sifirla" class="tehlike">Ofisi varsayılana döndür</button>
-        </div>
+        <details class="bolum" id="zamanlanmis-bolum">
+          <summary>Zamanlanmış görevler <span id="zamanlanmis-sayi" class="aciklama"></span></summary>
+          <p class="aciklama">Plaza Ofis açıkken belirtilen saatte CEO'ya kendiliğinden görev verilir.</p>
+          <ul id="zamanlanmis" class="kuyruk"></ul>
+          <form id="zamanlanmis-form">
+            <label>Görev <textarea name="talep" rows="2" required placeholder="Örn: Sektördeki bu haftanın önemli haberlerini özetle"></textarea></label>
+            <div class="satir">
+              <label>Saat <input name="saat" type="time" required value="09:00"></label>
+              <label class="kutu"><input type="checkbox" name="simulasyon"> Simülasyon</label>
+            </div>
+            <div id="zamanlanmis-gunler" class="gunler" aria-label="Günler (hiçbiri seçilmezse her gün)"></div>
+            <div class="satir"><button type="submit">+ Zamanla</button><span class="aciklama">Gün seçmezseniz her gün çalışır.</span></div>
+          </form>
+        </details>
+
+        <details class="bolum" id="ayar-bolum">
+          <summary>Ayarlar ve harcama <span id="harcama-ozet" class="aciklama"></span></summary>
+          <div id="harcama-ayrinti" class="aciklama"></div>
+          <form id="genel-form">
+            <fieldset>
+              <legend>Dakikadaki en fazla istek (0 = sınırsız)</legend>
+              <div id="hiz-alanlari" class="hiz-alanlari"></div>
+              <p class="aciklama">Sınır dolunca Plaza hata almak yerine bekler. Google ücretsiz katmanı Flash-Lite için dakikada 15 istek verir.</p>
+            </fieldset>
+            <label class="kutu"><input type="checkbox" name="canli_akis"> Çalışanların yazdıklarını canlı göster</label>
+            <fieldset>
+              <legend>Fiyatlar (milyon token başına USD: giriş / çıkış)</legend>
+              <div id="fiyat-alanlari" class="fiyat-alanlari"></div>
+              <p class="aciklama">* Tahmini (resmî olmayan kaynaklardan). Boş = bilinmiyor. Yerel modeller ücretsizdir.</p>
+            </fieldset>
+            <div class="satir"><button type="submit" class="birincil">Ayarları kaydet</button><span id="genel-kaydedildi" class="aciklama gizli">Kaydedildi ✓</span></div>
+          </form>
+        </details>
+
+        <details class="bolum" open>
+          <summary>Ofis düzeni</summary>
+          <p class="aciklama">Bir odanın boş zeminine tıklayarak departmanı yönetin, masa ekleyin.</p>
+          <div class="satir">
+            <select id="sablon-sec" aria-label="Departman şablonu"></select>
+            <button id="sablon-ekle">Şablonu ekle</button>
+          </div>
+          <div class="satir">
+            <button id="departman-ekle">+ Boş departman</button>
+            <button id="ofis-sifirla" class="tehlike">Ofisi varsayılana döndür</button>
+          </div>
+        </details>
       </div>
 
       <!-- Departman görünümü -->
@@ -103,6 +148,7 @@
           <label>İsim <input name="isim" placeholder="Örn: Ece"></label>
           <label>Rol <input name="role" required placeholder="Örn: Sosyal Medya Uzmanı" maxlength="60"></label>
           <label>Bu masada çalışan yapay zekâ <select name="model"></select></label>
+          <label>Yedek yapay zekâ <select name="yedek_model"></select></label>
           <label>Hedef <textarea name="goal" rows="2" placeholder="Boş bırakılırsa rolden üretilir"></textarea></label>
           <div class="satir">
             <button type="submit" class="birincil">Masa ekle</button>
@@ -127,6 +173,10 @@
         </div>
         <div id="masa-durum" class="masa-durum"></div>
         <div id="masa-istatistik" class="aciklama"></div>
+        <div id="masa-canli-kap" class="gizli">
+          <h3>Şu an yazıyor</h3>
+          <pre id="masa-canli" class="canli-kutu"></pre>
+        </div>
 
         <form id="masa-form">
           <label>İsim <input name="isim" required></label>
@@ -136,6 +186,9 @@
           <div id="model-uyari" class="aciklama model-uyari gizli"></div>
           <label id="ozel-model-kap" class="gizli">Özel model kimliği
             <input name="model_ozel" placeholder="örn. gemini/gemini-3.6-flash veya deepseek/deepseek-flash">
+          </label>
+          <label>Yedek yapay zekâ <small>(ana model kalıcı hata verirse devralır)</small>
+            <select name="yedek_model"></select>
           </label>
           <label>Rol <input name="role" required></label>
           <label>Hedef <textarea name="goal" rows="3"></textarea></label>
@@ -155,6 +208,14 @@
 
         <h3>Bu işteki görevleri</h3>
         <ul id="masa-gorevler" class="masa-gorevler"></ul>
+
+        <h3>Sohbet</h3>
+        <p class="aciklama">CEO akışının dışında bu çalışana doğrudan soru sorun.</p>
+        <div id="sohbet" class="sohbet"></div>
+        <form id="sohbet-form" class="sohbet-form">
+          <textarea name="mesaj" rows="2" required placeholder="Mesajınızı yazın (Ctrl+Enter ile gönder)"></textarea>
+          <div class="satir"><button type="submit">Gönder</button><button type="button" id="sohbet-temizle" class="baglanti">Sohbeti temizle</button></div>
+        </form>
       </div>
     </aside>
   </main>
@@ -169,6 +230,7 @@
       <div id="modal-eylemler" class="satir gizli">
         <a id="modal-zip" class="dugme" download>⬇ ZIP indir</a>
         <button id="modal-devam">↪ Bu işin üzerine devam et</button>
+        <button id="modal-surdur" class="birincil gizli">↻ Kaldığı yerden devam et</button>
       </div>
       <div id="modal-icerik" class="md"></div>
     </div>

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import asynccontextmanager
 import asyncio
 import io
 import json
@@ -45,6 +46,16 @@ from .settings import (
     ofisi_sifirla,
 )
 from .tools import TOOL_TYPES
+from . import zamanlayici
+from .llm import llm_olustur
+from .settings import (
+    DEPARTMAN_SABLONLARI,
+    TAHMINI_FIYAT,
+    VARSAYILAN_FIYATLAR,
+    genel_ayarlar,
+    genel_ayarlari_kaydet,
+    sablon_uygula,
+)
 
 WEB = Path(__file__).parent / "web"
 CIKTI = Path(os.getenv("PLAZA_CIKTI", "cikti")).resolve()
@@ -78,6 +89,8 @@ class Is:
     iptal: threading.Event = field(default_factory=threading.Event)
     akis: IsAkisi | None = None
     baslangic: float = field(default_factory=time.time)
+    devam: dict | None = None      # yarıda kalan işin kaydı (kaldığı yerden devam)
+    kaynak: Path | None = None     # devam edilen işin klasörü (dosyaları kopyalanır)
 
     @property
     def talep(self) -> str:
@@ -114,9 +127,23 @@ class Yayin:
         with self.kilit:
             self._gonder(self.kuyruk_olayi())
 
+    def canli(self, is_: Is, masa: str, metin: str) -> None:
+        """Çalışanın canlı yazdıkları: kaydedilmez, yalnızca açık sayfalara gider."""
+        with self.kilit:
+            self._gonder({"tip": "canli", "is_id": is_.id, "masa": masa, "metin": metin})
+
 
 yayin = Yayin()
-app = FastAPI(title="Plaza Ofis")
+
+
+@asynccontextmanager
+async def _yasam(_app):
+    dur = zamanlayici.baslat(_zamanlanmisi_calistir)  # zamanlanmış görevleri izle
+    yield
+    dur.set()
+
+
+app = FastAPI(title="Plaza Ofis", lifespan=_yasam)
 
 
 @app.middleware("http")
@@ -155,12 +182,18 @@ def ofis() -> dict:
         "saglayicilar": {k: {"ad": v["ad"], "anahtarlar": v["anahtarlar"], "hazir": anahtar_durumu()[k]}
                          for k, v in SAGLAYICILAR.items()},
         "max_masa": MAX_MASA,
+        "genel": genel_ayarlar(),
+        "varsayilan_fiyatlar": VARSAYILAN_FIYATLAR,
+        "tahmini_fiyat": sorted(TAHMINI_FIYAT),
+        "sablonlar": {k: {"ad": v["ad"], "aciklama": v["aciklama"], "calisan": len(v["calisanlar"])}
+                      for k, v in DEPARTMAN_SABLONLARI.items()},
     }
 
 
 class MasaAyari(BaseModel):
     isim: str | None = None
     model: str | None = None
+    yedek_model: str | None = None
     role: str | None = None
     goal: str | None = None
     backstory: str | None = None
@@ -212,6 +245,7 @@ class YeniMasa(BaseModel):
     goal: str = ""
     backstory: str = ""
     model: str = ""
+    yedek_model: str = ""
     tools: list[str] = ["file_read", "file_write"]
 
 
@@ -240,23 +274,128 @@ def calisan_sil(key: str) -> dict:
     return _degistir(masa_kaldir, key)
 
 
+@app.post("/api/sablon/{sablon_id}")
+def sablon_ekle(sablon_id: str) -> dict:
+    return _degistir(sablon_uygula, sablon_id)
+
+
+class GenelAyarlar(BaseModel):
+    hiz: dict[str, int] | None = None
+    fiyatlar: dict[str, list[float] | None] | None = None
+    canli_akis: bool | None = None
+
+
+@app.put("/api/genel")
+def genel_kaydet(ayar: GenelAyarlar) -> dict:
+    try:
+        genel_ayarlari_kaydet(ayar.model_dump(exclude_none=True))
+    except (ValueError, TypeError, IndexError) as e:
+        raise HTTPException(400, f"Geçersiz ayar: {e}")
+    return ofis()
+
+
+# ------------------------------------------------------------------ masayla sohbet
+class SohbetMesaji(BaseModel):
+    rol: str = Field(pattern="^(kullanici|asistan)$")
+    icerik: str = Field(min_length=1, max_length=20000)
+
+
+class SohbetIstegi(BaseModel):
+    mesajlar: list[SohbetMesaji] = Field(min_length=1, max_length=40)
+
+
+@app.post("/api/sohbet/{key}")
+def sohbet(key: str, istek: SohbetIstegi) -> dict:
+    """Bir çalışanla (ya da CEO ile) CEO akışı dışında doğrudan konuşma."""
+    try:
+        d = load_office().desk(key)
+    except KeyError:
+        raise HTTPException(404, "Böyle bir masa yok.")
+    sistem = (f"Adın {d.isim}. Plaza'da {d.department} bölümünde {d.role} olarak çalışıyorsun. {d.goal}\n"
+              f"{d.backstory}\nPatronun seninle doğrudan sohbet ediyor; kısa, net ve Türkçe yanıt ver.")
+    mesajlar = [{"role": "system", "content": sistem}] + [
+        {"role": "user" if m.rol == "kullanici" else "assistant", "content": m.icerik} for m in istek.mesajlar]
+    from .orchestrator import _temizle
+
+    son_hata = None
+    for model in [d.model] + ([d.yedek_model] if d.yedek_model and d.yedek_model != d.model else []):
+        try:
+            return {"yanit": _temizle(str(llm_olustur(model).call(mesajlar))), "model": model}
+        except Exception as e:  # noqa: BLE001 — yedek modeli dene, sonra Türkçe hata ver
+            son_hata = e
+    raise HTTPException(502, turkce_mesaj(son_hata))
+
+
+# ------------------------------------------------------------------ zamanlanmış görevler
+class ZamanlanmisGorev(BaseModel):
+    talep: str | None = None
+    saat: str | None = None
+    gunler: list[int] | None = None
+    simulasyon: bool | None = None
+    aktif: bool | None = None
+
+
+def _zamanlanmisi_calistir(kayit: dict) -> str:
+    try:
+        r = gorevi_al(GorevIstegi(talep=kayit["talep"], simulasyon=kayit.get("simulasyon", False)))
+    except HTTPException as e:
+        return f"başlatılamadı: {e.detail}"
+    return f"sıraya alındı ({r['sira']}. sıra)" if r.get("kuyrukta") else f"başlatıldı ({r['is_id']})"
+
+
+@app.get("/api/zamanlanmis")
+def zamanlanmis_listesi() -> list[dict]:
+    return zamanlayici.listele()
+
+
+@app.post("/api/zamanlanmis")
+def zamanlanmis_ekle(g: ZamanlanmisGorev) -> list[dict]:
+    try:
+        zamanlayici.ekle(g.model_dump(exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return zamanlayici.listele()
+
+
+@app.put("/api/zamanlanmis/{zid}")
+def zamanlanmis_guncelle(zid: str, g: ZamanlanmisGorev) -> list[dict]:
+    try:
+        zamanlayici.guncelle(zid, g.model_dump(exclude_none=True))
+    except KeyError:
+        raise HTTPException(404, "Bulunamadı.")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return zamanlayici.listele()
+
+
+@app.delete("/api/zamanlanmis/{zid}")
+def zamanlanmis_sil(zid: str) -> list[dict]:
+    try:
+        zamanlayici.sil(zid)
+    except KeyError:
+        raise HTTPException(404, "Bulunamadı.")
+    return zamanlayici.listele()
+
+
 @app.post("/api/ofis/sifirla")
 def ofis_sifirla() -> dict:
     return _degistir(ofisi_sifirla)
 
 
 # ------------------------------------------------------------------ işler
-def _yeni_is(istek: GorevIstegi) -> Is:
+def _yeni_is(istek: GorevIstegi, devam: dict | None = None, kaynak: Path | None = None) -> Is:
     """Kilit altında çağrılır."""
     taban = datetime.now().strftime("%Y%m%d-%H%M%S")
     is_id, i = taban, 2
     while (CIKTI / is_id).exists() or (yayin.is_ and yayin.is_.id == is_id):
         is_id, i = f"{taban}-{i}", i + 1
-    return Is(id=is_id, istek=istek, klasor=CIKTI / is_id)
+    return Is(id=is_id, istek=istek, klasor=CIKTI / is_id, devam=devam, kaynak=kaynak)
 
 
 def _baslat(is_: Is) -> None:
     istek = is_.istek
+    if is_.kaynak and is_.kaynak.exists():  # kaldığı yerden: önceki denemenin dosyalarıyla başla
+        shutil.copytree(is_.kaynak, is_.klasor, ignore=shutil.ignore_patterns("is.json"), dirs_exist_ok=True)
     is_.klasor.mkdir(parents=True, exist_ok=True)
     ekler = []
     for ek in istek.ekler:
@@ -273,6 +412,7 @@ def _baslat(is_: Is) -> None:
     yayin.yayinla(
         is_, "is_basladi", talep=is_.talep, simulasyon=istek.simulasyon, plan_onayi=istek.plan_onayi,
         onceki_is=istek.onceki_is if onceki_sonuc else None, ekler=[a for a, _ in ekler],
+        devam_edilen=is_.kaynak.name if is_.devam and is_.kaynak else None,
     )
     threading.Thread(target=_isi_yurut, args=(is_, load_office(), ekler, onceki_sonuc), daemon=True).start()
 
@@ -285,7 +425,8 @@ def _isi_yurut(is_: Is, office, ekler, onceki_sonuc: str) -> None:
 
     akis = IsAkisi(
         office, is_.talep, emit, is_.klasor, istek.simulasyon, istek.max_revizyon, is_.iptal,
-        plan_onayi=istek.plan_onayi, onceki_sonuc=onceki_sonuc, ekler=ekler,
+        plan_onayi=istek.plan_onayi and not is_.devam, onceki_sonuc=onceki_sonuc, ekler=ekler,
+        devam=is_.devam, canli=lambda masa, metin: yayin.canli(is_, masa, metin),
     )
     is_.akis = akis
     try:
@@ -303,21 +444,23 @@ def _isi_yurut(is_: Is, office, ekler, onceki_sonuc: str) -> None:
              ayrinti=(str(e) or e.__class__.__name__)[:600])
     finally:
         is_.klasor.mkdir(parents=True, exist_ok=True)
-        meta = {"id": is_.id, "talep": is_.talep, "simulasyon": istek.simulasyon, "olaylar": is_.olaylar}
+        meta = {"id": is_.id, "talep": is_.talep, "simulasyon": istek.simulasyon, "olaylar": is_.olaylar,
+                "istek": istek.model_dump(), "kayit": akis.kayit()}
         (is_.klasor / "is.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
         with yayin.kilit:
             is_.calisiyor = False
             sonraki = None
             if yayin.kuyruk:
-                sonraki = _yeni_is(yayin.kuyruk.pop(0)["istek"])
+                k = yayin.kuyruk.pop(0)
+                sonraki = _yeni_is(k["istek"], k.get("devam"), k.get("kaynak"))
                 yayin.is_ = sonraki
         if sonraki:
             yayin.kuyrugu_yayinla()
             _baslat(sonraki)
 
 
-@app.post("/api/gorev")
-def gorev_ver(istek: GorevIstegi) -> dict:
+def gorevi_al(istek: GorevIstegi, devam: dict | None = None, kaynak: Path | None = None) -> dict:
+    """Görevi hemen başlatır ya da CEO meşgulse sıraya koyar (arayüz ve zamanlayıcı kullanır)."""
     office = load_office()
     if not office.aktif_calisanlar():
         raise HTTPException(400, "Ofiste aktif çalışan yok.")
@@ -334,17 +477,36 @@ def gorev_ver(istek: GorevIstegi) -> dict:
     with yayin.kilit:
         if yayin.is_ and yayin.is_.calisiyor:
             kid = uuid.uuid4().hex[:8]
-            yayin.kuyruk.append({"id": kid, "istek": istek})
+            yayin.kuyruk.append({"id": kid, "istek": istek, "devam": devam, "kaynak": kaynak})
             sira = len(yayin.kuyruk)
             is_ = None
         else:
-            is_ = _yeni_is(istek)
+            is_ = _yeni_is(istek, devam, kaynak)
             yayin.is_ = is_
     if is_ is None:
         yayin.kuyrugu_yayinla()
         return {"kuyrukta": True, "id": kid, "sira": sira}
     _baslat(is_)
     return {"is_id": is_.id}
+
+
+@app.post("/api/gorev")
+def gorev_ver(istek: GorevIstegi) -> dict:
+    return gorevi_al(istek)
+
+
+@app.post("/api/is/{is_id}/devam")
+def isi_devam_ettir(is_id: str) -> dict:
+    """Hata veren ya da durdurulan bir işi, biten adımları yeniden yapmadan sürdürür."""
+    klasor = _is_klasoru(is_id)
+    m = json.loads((klasor / "is.json").read_text(encoding="utf-8"))
+    son = m["olaylar"][-1]["tip"] if m.get("olaylar") else ""
+    if son not in ("is_hatasi", "is_durduruldu"):
+        raise HTTPException(400, "Yalnızca hata veren ya da durdurulan işler sürdürülebilir.")
+    kayit = m.get("kayit") or {}
+    if not kayit.get("adimlar") or "istek" not in m:
+        raise HTTPException(400, "Bu iş plan aşamasını geçmeden durmuş; yeniden başlatmak gerekiyor.")
+    return gorevi_al(GorevIstegi(**m["istek"]), devam=kayit, kaynak=klasor)
 
 
 @app.delete("/api/kuyruk/{kid}")
@@ -449,7 +611,32 @@ def istatistik() -> dict:
                 s["gorev"] += 1
                 s["sure"] = round(s["sure"] + o.get("istatistik", {}).get("sure", 0), 1)
                 s["token"] += o.get("istatistik", {}).get("ceo_token", 0)
-    return {"is_sayisi": is_sayisi, "masalar": masalar, "projeler": _basarili_projeler()}
+    return {"is_sayisi": is_sayisi, "masalar": masalar, "projeler": _basarili_projeler(),
+            "harcama": _harcama()}
+
+
+def _harcama() -> dict:
+    """Ay ay toplam maliyet (USD). Fiyatı bilinmeyen modellerin kullanımı varsa 'eksik' işaretlenir."""
+    aylar: dict[str, float] = {}
+    eksik = False
+    for d, m in _metalar():
+        if m.get("simulasyon"):
+            continue
+        ay = f"{d.name[:4]}-{d.name[4:6]}"
+        toplam = 0.0
+        for o in m.get("olaylar", []):
+            if o.get("tip") == "gorev_bitti" and o.get("token"):
+                if o.get("maliyet") is None:
+                    eksik = True
+                else:
+                    toplam += o["maliyet"]
+            elif o.get("tip") == "is_bitti":
+                ist = o.get("istatistik", {})
+                toplam += ist.get("ceo_maliyet") or 0.0
+                eksik = eksik or bool(ist.get("maliyet_eksik"))
+        aylar[ay] = round(aylar.get(ay, 0.0) + toplam, 6)
+    bu_ay = datetime.now().strftime("%Y-%m")
+    return {"bu_ay": aylar.get(bu_ay, 0.0), "aylar": dict(sorted(aylar.items(), reverse=True)), "eksik": eksik}
 
 
 def _basarili_projeler() -> dict[str, list[dict]]:

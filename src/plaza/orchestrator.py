@@ -23,9 +23,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
-from .hatalar import bekleme_aciklamasi, gecici_mi, onerilen_bekleme
-from .office import make_llm
-from .settings import Desk, Office, arac_destekli
+from .hatalar import Durduruldu, bekleme_aciklamasi, gecici_mi, onerilen_bekleme
+from .llm import CanliTampon, akis_ayir, akis_baglan, kullanim, llm_olustur
+from .settings import Desk, Office, arac_destekli, genel_ayarlar, maliyet
 from .tools import build_tools
 
 Emit = Callable[..., None]
@@ -33,9 +33,6 @@ MAX_BAGLAM = 6000
 MAX_EK = 4000
 BEKLEMELER = (5, 15, 30)  # geçici hatalarda yeniden deneme aralıkları (sn)
 
-
-class Durduruldu(Exception):
-    """Kullanıcı işi durdurdu."""
 
 
 @dataclass
@@ -55,15 +52,14 @@ def _json_ayikla(metin: str) -> dict:
 def _temizle(metin: str) -> str:
     """Düşünen modellerin (ör. DeepSeek R1) <think>…</think> bölümlerini çıkarır."""
     metin = re.sub(r"<think>.*?</think>", "", metin, flags=re.S)
-    return re.sub(r"^.*?</think>", "", metin, flags=re.S).strip()
+    metin = re.sub(r"^.*?</think>", "", metin, flags=re.S).strip()
+    # Tüm yanıtı tek bir ```markdown bloğuna saran modeller için dış çiti kaldır
+    m = re.fullmatch(r"```(?:markdown|md)?\s*\n(.*)\n```", metin, flags=re.S)
+    return m.group(1).strip() if m else metin
 
 
 def _kisalt(s: str, n: int = MAX_BAGLAM) -> str:
     return s if len(s) <= n else s[:n] + "\n…(kısaltıldı)"
-
-
-def _token(kullanim) -> int:
-    return int(getattr(kullanim, "total_tokens", 0) or 0)
 
 
 class IsAkisi:
@@ -79,6 +75,8 @@ class IsAkisi:
         plan_onayi: bool = False,
         onceki_sonuc: str = "",
         ekler: list[tuple[str, str]] | None = None,
+        devam: dict | None = None,
+        canli: Callable[[str, str], None] | None = None,
     ):
         self.office = office
         self.talep = talep
@@ -96,19 +94,40 @@ class IsAkisi:
         self._onay = threading.Event()
         self._onaylanan: list[Adim] = []
         self._ceo_llm = None
-        self.istatistik: dict[str, dict] = {}  # çalışan -> {gorev, sure, token}
+        self._ceo_model = office.ceo.model
+        self._ceo_llmler: list[tuple[str, object]] = []  # (model, llm) — kullanım/maliyet için
+        self.istatistik: dict[str, dict] = {}  # çalışan -> {gorev, sure, token, maliyet}
+        self.genel = genel_ayarlar()
+        self.devam = devam  # yarıda kalmış bir işin kaydı: kaldığı yerden devam
+        self.canli = canli  # canli(masa, metin_parcasi): kaydedilmeyen canlı akış
+        self.plan: list[Adim] = []
+        self.tamamlanan: list[list] = []  # [calisan, gorev, asama] — ilk turda biten adımlar
 
     # ------------------------------------------------------------------ akış
     def calistir(self) -> str:
         ceo = self.office.ceo
-        self.emit("durum", masa="ceo", durum="dusunuyor", aciklama="Talebi inceliyor, plan çıkarıyor")
-        self.plan_ozeti, adimlar = self._planla()
-        if self.plan_onayi:
-            adimlar = self._onay_bekle(adimlar)
-        self.emit("plan", ozet=self.plan_ozeti, adimlar=[asdict(a) for a in adimlar])
+        if self.devam:
+            # Kaldığı yerden: plan ve biten adımların çıktıları önceki denemeden gelir
+            self.plan_ozeti = self.devam.get("plan_ozeti", "")
+            adimlar = self._adimlari_dogrula(self.devam.get("adimlar"))
+            aktif = {s.key for s in self.office.aktif_calisanlar()}
+            self.ciktilar = {k: v for k, v in (self.devam.get("ciktilar") or {}).items() if k in aktif}
+            self.tamamlanan = [t for t in self.devam.get("tamamlanan", []) if t[0] in self.ciktilar]
+            if not adimlar:
+                raise ValueError("Önceki işin planı okunamadı; işi yeniden başlatın.")
+            self.emit("plan", ozet=self.plan_ozeti, adimlar=[asdict(a) for a in adimlar],
+                      tamamlanan=self.tamamlanan, devam=True)
+        else:
+            self.emit("durum", masa="ceo", durum="dusunuyor", aciklama="Talebi inceliyor, plan çıkarıyor")
+            self.plan_ozeti, adimlar = self._planla()
+            if self.plan_onayi:
+                adimlar = self._onay_bekle(adimlar)
+            self.emit("plan", ozet=self.plan_ozeti, adimlar=[asdict(a) for a in adimlar])
+        self.plan = adimlar
         self.emit("durum", masa="ceo", durum="bekliyor", aciklama="Departmanları bekliyor")
 
-        self._asamalari_calistir(adimlar, tur=0)
+        biten = {(t[0], t[1], t[2]) for t in self.tamamlanan}
+        self._asamalari_calistir([a for a in adimlar if (a.calisan, a.gorev, a.asama) not in biten], tur=0)
 
         tur = 0
         while True:
@@ -133,9 +152,45 @@ class IsAkisi:
         return sonuc
 
     def ozet_istatistik(self) -> dict:
-        ceo_token = _token(self._ceo_llm.get_token_usage_summary()) if self._ceo_llm else 0
+        ceo_token, ceo_maliyet, eksik = 0, 0.0, False
+        for model, llm in self._ceo_llmler:
+            g, c = kullanim(llm)
+            ceo_token += g + c
+            m = maliyet(model, g, c, self.genel)
+            if m is None:
+                eksik = eksik or (g + c) > 0
+            else:
+                ceo_maliyet += m
         calisan_token = sum(v["token"] for v in self.istatistik.values())
-        return {"ceo_token": ceo_token, "toplam_token": ceo_token + calisan_token, "calisanlar": self.istatistik}
+        calisan_maliyet = 0.0
+        for v in self.istatistik.values():
+            if v.get("maliyet") is None:
+                eksik = eksik or v["token"] > 0
+            else:
+                calisan_maliyet += v["maliyet"]
+        return {
+            "ceo_token": ceo_token, "toplam_token": ceo_token + calisan_token, "calisanlar": self.istatistik,
+            "ceo_maliyet": round(ceo_maliyet, 6), "toplam_maliyet": round(ceo_maliyet + calisan_maliyet, 6),
+            "maliyet_eksik": eksik,
+        }
+
+    def kayit(self) -> dict:
+        """Yarıda kalırsa kaldığı yerden devam edebilmek için gereken durum."""
+        return {
+            "plan_ozeti": self.plan_ozeti,
+            "adimlar": [asdict(a) for a in self.plan],
+            "ciktilar": dict(self.ciktilar),
+            "tamamlanan": list(self.tamamlanan),
+        }
+
+    def _bekleme_bildirimi(self, masa: str, durum: str):
+        def bildir(saniye: float) -> None:
+            if saniye > 0:
+                self.emit("durum", masa=masa, durum="bekliyor",
+                          aciklama=f"İstek hızı sınırı: {saniye:.0f} sn bekleniyor")
+            else:
+                self.emit("durum", masa=masa, durum=durum, aciklama="Devam ediyor")
+        return bildir
 
     def _kontrol(self) -> None:
         if self.iptal.is_set():
@@ -192,9 +247,21 @@ class IsAkisi:
     def _tek_adim(self, a: Adim, tur: int, onceki: dict[str, str]) -> None:
         desk = self.office.desk(a.calisan)
         bas = time.monotonic()
+        model = desk.model
         try:
-            cikti, token = self._yeniden_dene(
-                desk.key, "calisiyor", lambda: self._calisan(desk, a.gorev, tur, onceki))
+            try:
+                cikti, giris, cikis = self._yeniden_dene(
+                    desk.key, "calisiyor", lambda: self._calisan(desk, a.gorev, tur, onceki, model))
+            except Durduruldu:
+                raise
+            except Exception:
+                if not desk.yedek_model or desk.yedek_model == model or self.simulasyon:
+                    raise
+                model = desk.yedek_model
+                self.emit("durum", masa=desk.key, durum="calisiyor",
+                          aciklama=f"Ana model yanıt vermedi; yedek modele geçildi ({model})")
+                cikti, giris, cikis = self._yeniden_dene(
+                    desk.key, "calisiyor", lambda: self._calisan(desk, a.gorev, tur, onceki, model))
         except Durduruldu:
             raise
         except Exception as e:
@@ -202,14 +269,20 @@ class IsAkisi:
             e.plaza_masa = f"{desk.isim} ({desk.role})"  # hata mesajında hangi masa olduğu görünsün
             raise
         sure = round(time.monotonic() - bas, 1)
+        token = giris + cikis
+        tutar = maliyet(model, giris, cikis, self.genel)
         with self._kilit:
             self.ciktilar.pop(desk.key, None)
             self.ciktilar[desk.key] = cikti
-            s = self.istatistik.setdefault(desk.key, {"gorev": 0, "sure": 0.0, "token": 0})
+            if tur == 0:
+                self.tamamlanan.append([a.calisan, a.gorev, a.asama])
+            s = self.istatistik.setdefault(desk.key, {"gorev": 0, "sure": 0.0, "token": 0, "maliyet": 0.0})
             s["gorev"] += 1
             s["sure"] = round(s["sure"] + sure, 1)
             s["token"] += token
-        self.emit("gorev_bitti", kime=desk.key, cikti=cikti, tur=tur, asama=a.asama, sure=sure, token=token)
+            s["maliyet"] = None if (tutar is None or s["maliyet"] is None) else round(s["maliyet"] + tutar, 6)
+        self.emit("gorev_bitti", kime=desk.key, cikti=cikti, tur=tur, asama=a.asama, sure=sure, token=token,
+                  giris=giris, cikis=cikis, maliyet=tutar, model=model)
         self.emit("durum", masa=desk.key, durum="bitti", aciklama="Görevi CEO'ya teslim etti")
 
     # --------------------------------------------------------------- bağlam
@@ -238,15 +311,32 @@ class IsAkisi:
             f"- {s.key}: {s.isim}, {s.role} ({s.department}) — {s.goal}" for s in self.office.aktif_calisanlar()
         )
 
+    def _ceo_modeli_kur(self, model: str) -> None:
+        self._ceo_model = model
+        self._ceo_llm = llm_olustur(model, iptal=self.iptal,
+                                    bekleme_bildir=self._bekleme_bildirimi("ceo", "dusunuyor"))
+        self._ceo_llmler.append((model, self._ceo_llm))
+
     def _ceo_cagir(self, kullanici: str, durum: str = "dusunuyor") -> str:
         if self._ceo_llm is None:
-            self._ceo_llm = make_llm(self.office.ceo.model)
+            self._ceo_modeli_kur(self.office.ceo.model)
         mesajlar = [
             {"role": "system", "content": self._ceo_sistem()},
             {"role": "user", "content": kullanici},
         ]
         try:
-            yanit = self._yeniden_dene("ceo", durum, lambda: self._ceo_llm.call(mesajlar))
+            try:
+                yanit = self._yeniden_dene("ceo", durum, lambda: self._ceo_llm.call(mesajlar))
+            except Durduruldu:
+                raise
+            except Exception:
+                yedek = self.office.ceo.yedek_model
+                if not yedek or yedek == self._ceo_model:
+                    raise
+                self._ceo_modeli_kur(yedek)
+                self.emit("durum", masa="ceo", durum=durum,
+                          aciklama=f"Ana model yanıt vermedi; yedek modele geçildi ({yedek})")
+                yanit = self._yeniden_dene("ceo", durum, lambda: self._ceo_llm.call(mesajlar))
         except Durduruldu:
             raise
         except Exception as e:
@@ -372,7 +462,7 @@ class IsAkisi:
             devam = "\n\n_Bu iş önceki bir işin devamıdır._" if self.onceki_sonuc else ""
             return (
                 f"# Nihai Teslimat (simülasyon)\n\n**Talep:** {self.talep}{ek}{devam}\n\n## Kim ne yaptı\n{satirlar}\n\n"
-                "## Not\nBu bir simülasyon çıktısıdır; Claude çağrılmadı."
+                "## Not\nBu bir simülasyon çıktısıdır; yapay zekâ çağrılmadı."
             )
         return self._ceo_cagir(durum="calisiyor", kullanici=
             f"Talep:\n{self.talep}{self._ek_baglam()}\n\nDepartmanlardan gelen nihai çıktılar:\n\n"
@@ -383,7 +473,10 @@ class IsAkisi:
         )
 
     # ------------------------------------------------------------ çalışan
-    def _calisan(self, desk: Desk, gorev: str, tur: int, onceki: dict[str, str]) -> tuple[str, int]:
+    def _calisan(self, desk: Desk, gorev: str, tur: int, onceki: dict[str, str],
+                 model: str | None = None) -> tuple[str, int, int]:
+        """Bir çalışanın görevini yürütür; (çıktı, giriş token, çıkış token) döndürür."""
+        model = model or desk.model
         if self.simulasyon:
             time.sleep(random.uniform(2.0, 4.0))
             if self.iptal.is_set():
@@ -392,7 +485,7 @@ class IsAkisi:
             return (
                 f"## {desk.role} çıktısı{ek}\n\n- Talep incelendi: _{self.talep[:80]}_\n"
                 f"- Önceki {len(onceki)} çıktı değerlendirildi.\n- {gorev}\n\nSimülasyon çıktısıdır.",
-                0,
+                0, 0,
             )
 
         from crewai import Agent, Crew, Process, Task
@@ -405,8 +498,10 @@ class IsAkisi:
         if tur and desk.key in onceki:
             baglam += f"\n\nBu bir REVİZYON. Önceki çıktın:\n{_kisalt(onceki[desk.key])}"
 
-        llm = make_llm(desk.model)
-        araclar = build_tools(desk.tools, self.workdir) if arac_destekli(desk.model) else []
+        akis = bool(self.genel.get("canli_akis")) and self.canli is not None
+        llm = llm_olustur(model, stream=akis, iptal=self.iptal,
+                          bekleme_bildir=self._bekleme_bildirimi(desk.key, "calisiyor"))
+        araclar = build_tools(desk.tools, self.workdir) if arac_destekli(model) else []
         if desk.tools and not araclar:
             baglam += ("\n\nNot: Kullandığın yerel model dosya araçlarını desteklemiyor; dosya yazamazsın. "
                        "Üretmen gereken dosyaların içeriğini çıktında dosya adlarıyla birlikte ver.")
@@ -428,6 +523,19 @@ class IsAkisi:
             expected_output="Görevin eksiksiz, Türkçe çıktısı.",
             agent=agent,
         )
-        sonuc = Crew(agents=[agent], tasks=[task], process=Process.sequential, verbose=False).kickoff()
-        token = _token(sonuc.token_usage) or _token(llm.get_token_usage_summary())
-        return _temizle(str(sonuc.raw)), token
+        crew = Crew(agents=[agent], tasks=[task], process=Process.sequential, verbose=False)
+        if akis:
+            tampon = CanliTampon(lambda metin: self.canli(desk.key, metin))
+            akis_baglan(str(agent.id), tampon)
+            try:
+                with tampon:
+                    sonuc = crew.kickoff()
+            finally:
+                akis_ayir(str(agent.id))
+        else:
+            sonuc = crew.kickoff()
+        u = sonuc.token_usage
+        giris, cikis = int(getattr(u, "prompt_tokens", 0) or 0), int(getattr(u, "completion_tokens", 0) or 0)
+        if not (giris or cikis):
+            giris, cikis = kullanim(llm)
+        return _temizle(str(sonuc.raw)), giris, cikis

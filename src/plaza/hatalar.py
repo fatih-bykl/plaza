@@ -10,6 +10,10 @@ from __future__ import annotations
 
 import re
 
+
+class Durduruldu(Exception):
+    """Kullanıcı işi durdurdu."""
+
 # Bekledikçe düzelebilecek durumlar
 _GECICI = re.compile(
     r"\b(429|500|502|503|504|529)\b|UNAVAILABLE|overloaded|high demand|try again later|"

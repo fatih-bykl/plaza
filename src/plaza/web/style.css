@@ -236,3 +236,27 @@ a.dugme:hover { border-color: var(--vurgu); }
 .oda-rozet text { font: 600 12px system-ui, sans-serif; fill: var(--metin); text-anchor: middle; pointer-events: none; }
 .oda-rozet:hover rect, .oda-rozet:focus-visible rect { stroke: #f59f00; stroke-width: 2; }
 .oda-rozet:focus { outline: none; }
+
+/* ---------- şablonlar, bölümler, sohbet, canlı akış ---------- */
+.sablon-cipleri { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.sablon-cipleri button { padding: 3px 10px; font-size: 12.5px; border-radius: 99px; }
+details.bolum { margin-top: 18px; border-top: 1px solid var(--cizgi); padding-top: 10px; }
+details.bolum > summary { cursor: pointer; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--soluk); font-weight: 600; }
+details.bolum > summary .aciklama { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
+.gunler { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 8px 0; }
+.gunler label { display: flex; align-items: center; gap: 4px; margin: 0; color: var(--metin); }
+.gunler input { width: auto; }
+.hiz-alanlari, .fiyat-alanlari { display: grid; gap: 6px; }
+.hiz-alanlari label, .fiyat-alanlari label { display: grid; grid-template-columns: 1fr 90px; align-items: center; gap: 8px; margin: 0; color: var(--metin); }
+.fiyat-alanlari label { grid-template-columns: 1fr 70px 70px; }
+.hiz-alanlari input, .fiyat-alanlari input { margin: 0; padding: 4px 6px; }
+.canli-kutu { white-space: pre-wrap; word-break: break-word; background: var(--yuzey-2); border: 1px solid var(--cizgi); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; max-height: 260px; overflow: auto; margin: 0; }
+.adimlar li .canli { font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--vurgu); white-space: pre-wrap; margin-top: 4px; max-height: 4.5em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.sohbet { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow: auto; margin-bottom: 8px; }
+.sohbet .mesaj { padding: 7px 10px; border-radius: 10px; font-size: 13.5px; max-width: 92%; }
+.sohbet .mesaj.kullanici { align-self: flex-end; background: var(--vurgu); color: #fff; }
+.sohbet .mesaj.asistan { align-self: flex-start; background: var(--yuzey-2); border: 1px solid var(--cizgi); }
+.sohbet .mesaj.asistan p { margin: 0 0 6px; } .sohbet .mesaj.asistan p:last-child { margin: 0; }
+.sohbet .mesaj.bekliyor { opacity: .6; font-style: italic; }
+.onizleme { width: 100%; height: 60vh; border: 1px solid var(--cizgi); border-radius: 8px; background: #fff; }
+.kuyruk li small { color: var(--soluk); display: block; }

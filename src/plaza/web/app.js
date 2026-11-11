@@ -14,6 +14,21 @@ const DURUM_YAZI = {
   bosta: "Boşta", dusunuyor: "Düşünüyor", calisiyor: "Çalışıyor", bitti: "Görevi bitirdi", hata: "Hata", bekliyor: "Bekliyor",
 };
 
+const ARAC_ADLARI = {
+  file_read: "Dosya okuma", file_write: "Dosya yazma", list_files: "Dosya listeleme",
+  web_ara: "Web'de arama", web_oku: "Web sayfası okuma",
+  python_calistir: "Python çalıştırma ⚠ (kod bu bilgisayarda çalışır)",
+};
+const GOREV_SABLONLARI = [
+  ["🌐 Web sayfası", "… için tek sayfalık, duyarlı (mobil uyumlu) bir HTML/CSS tanıtım sayfası hazırla. Dosyayı index.html olarak kaydet."],
+  ["📊 Araştırma raporu", "… konusunu internetten araştır; güncel durumu, önemli rakamları ve kaynaklarıyla birlikte özetleyen bir rapor hazırla."],
+  ["📣 Sosyal medya", "… için bir haftalık sosyal medya içerik takvimi ve 5 örnek gönderi metni hazırla."],
+  ["🧪 Kod incele", "Ekteki kodu incele: hataları, güvenlik sorunlarını ve iyileştirme önerilerini öncelik sırasıyla listele."],
+  ["✉️ E-posta", "… konusunda kısa, nazik ve profesyonel bir e-posta taslağı yaz."],
+  ["📝 Özet", "Ekteki metni ana fikirleri ve yapılacaklarla birlikte madde madde özetle."],
+];
+const GUN_ADLARI = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
+
 const durum = {
   ofis: null,          // /api/ofis yanıtı
   masalar: {},         // key -> masa bilgisi (+renk)
@@ -33,6 +48,10 @@ const durum = {
   isOzet: null,        // tamamlanan işin istatistiği
   istatistik: null,    // tüm zamanlar, masa bazında
   talep: "",
+  isId: null,          // çalışan / son işin kimliği
+  canli: {},           // masa -> şu an yazdığı metin
+  sohbetler: {},       // masa -> [{rol, icerik}]
+  zamanlanmis: [],
 };
 
 /* ---------------------------------------------------------------- yardımcılar */
@@ -50,7 +69,7 @@ function modelKisa(id) {
   return m ? m.kisa : id.split("/").pop();
 }
 /* Model seçimi: sağlayıcıya göre gruplu; anahtarı olmayan sağlayıcılar işaretlenir */
-function modelSecenekleri(sec, ozelEkle = false) {
+function modelSecenekleri(sec, ozelEkle = false, yokEtiketi = null) {
   const gruplar = Object.entries(durum.ofis.saglayicilar).map(([key, sg]) => {
     const g = document.createElement("optgroup");
     const yerel = key === "yerel";
@@ -60,6 +79,7 @@ function modelSecenekleri(sec, ozelEkle = false) {
     return g;
   });
   sec.replaceChildren(...gruplar);
+  if (yokEtiketi) sec.prepend(new Option(yokEtiketi, ""));
   if (ozelEkle) sec.append(new Option("Özel model…", "__ozel"));
 }
 
@@ -445,7 +465,7 @@ function departmanPaneliDoldur() {
     ul.appendChild(li);
   }
   const f = $("#yeni-masa-form");
-  if (!f.model.options.length) modelSecenekleri(f.model);
+  if (!f.model.options.length) { modelSecenekleri(f.model); modelSecenekleri(f.yedek_model, false, "Yok — yedek kullanma"); }
   const dolu = d.staff.length >= durum.ofis.max_masa;
   f.querySelector("button[type=submit]").disabled = dolu;
   $("#dep-dolu").classList.toggle("gizli", !dolu);
@@ -460,7 +480,7 @@ $("#dep-form").addEventListener("submit", (e) => {
 $("#yeni-masa-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target;
-  const veri = { isim: f.isim.value.trim(), role: f.role.value.trim(), goal: f.goal.value.trim(), model: f.model.value };
+  const veri = { isim: f.isim.value.trim(), role: f.role.value.trim(), goal: f.goal.value.trim(), model: f.model.value, yedek_model: f.yedek_model.value };
   if (await islem(() => api(`/api/departman/${durum.seciliDep}/masa`, { method: "POST", body: JSON.stringify(veri) }))) {
     f.isim.value = ""; f.role.value = ""; f.goal.value = "";
   }
@@ -515,9 +535,13 @@ function masaPaneliDoldur() {
   f.aktif.checked = !!k.aktif;
   $("#araclar").replaceChildren(...durum.ofis.araclar.map((a) => {
     const l = document.createElement("label");
-    l.innerHTML = `<input type="checkbox" value="${kacis(a)}" ${k.tools?.includes(a) ? "checked" : ""}> ${kacis(a)}`;
+    l.innerHTML = `<input type="checkbox" value="${kacis(a)}" ${k.tools?.includes(a) ? "checked" : ""}> ${kacis(ARAC_ADLARI[a] || a)}`;
     return l;
   }));
+  modelSecenekleri(f.yedek_model, false, "Yok — yedek kullanma");
+  f.yedek_model.value = k.yedek_model || "";
+  canliPaneliGuncelle();
+  sohbetCiz();
   $("#sifirla").disabled = !k.ozel;
   $("#masa-kaldir").classList.toggle("gizli", ceo);
   $("#kaydedildi").classList.add("gizli");
@@ -548,7 +572,7 @@ $("#masa-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target, key = durum.secili;
   const model = f.model_secim.value === "__ozel" ? f.model_ozel.value.trim() : f.model_secim.value;
-  const veri = { isim: f.isim.value.trim(), model, role: f.role.value.trim(), goal: f.goal.value, backstory: f.backstory.value };
+  const veri = { isim: f.isim.value.trim(), model, yedek_model: f.yedek_model.value, role: f.role.value.trim(), goal: f.goal.value, backstory: f.backstory.value };
   if (key !== "ceo") {
     veri.aktif = f.aktif.checked;
     veri.tools = [...$("#araclar").querySelectorAll("input:checked")].map((i) => i.value);
@@ -576,9 +600,16 @@ document.querySelectorAll(".geri-btn").forEach((b) => b.addEventListener("click"
 
 function sayiKisa(n) { return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n); }
 function sureYaz(s) { return s >= 60 ? `${Math.floor(s / 60)} dk ${Math.round(s % 60)} sn` : `${Math.round(s)} sn`; }
+function para(x) {
+  if (x == null) return "";
+  if (x === 0) return "ücretsiz";
+  return x < 0.01 ? `$${x.toFixed(4)}` : `$${x.toFixed(2)}`;
+}
 function metrik(a) {
+  if (a.onceki) return "önceki denemede tamamlandı";
   if (a.sure == null) return "";
-  return `⏱ ${sureYaz(a.sure)}${a.token ? " · " + sayiKisa(a.token) + " token" : ""}`;
+  const m = a.token && a.maliyet != null ? " · " + para(a.maliyet) : "";
+  return `⏱ ${sureYaz(a.sure)}${a.token ? " · " + sayiKisa(a.token) + " token" : ""}${m}`;
 }
 
 function adimlariCiz() {
@@ -606,7 +637,7 @@ function adimlariCiz() {
     li.className = `${a.durum} ${a.tur ? "revizyon" : ""}`;
     const ikon = { bekliyor: "○", calisiyor: "⌨️", bitti: "✅", hata: "⚠️" }[a.durum] || "○";
     const m = metrik(a);
-    li.innerHTML = `<span class="ikon">${ikon}</span><div><b>${kacis(k.isim)}</b> <span class="aciklama">${kacis(k.role)}</span><div class="gorev">${kacis(a.gorev)}</div>${m ? `<div class="metrik">${m}</div>` : ""}</div>`;
+    li.innerHTML = `<span class="ikon">${ikon}</span><div><b>${kacis(k.isim)}</b> <span class="aciklama">${kacis(k.role)}</span><div class="gorev">${kacis(a.gorev)}</div>${m ? `<div class="metrik">${m}</div>` : ""}${a.durum === "calisiyor" && durum.canli[a.calisan] ? `<div class="canli">${kacis(durum.canli[a.calisan].slice(-240))}</div>` : ""}</div>`;
     li.onclick = () => (a.cikti ? modalAc(`${k.isim} — ${k.role}`, `**Görev:** ${a.gorev}\n\n---\n\n${a.cikti}`) : masaSec(a.calisan));
     li.title = a.cikti ? "Çıktıyı görmek için tıklayın" : "Masayı açmak için tıklayın";
     ol.appendChild(li);
@@ -616,7 +647,8 @@ function adimlariCiz() {
   if (durum.isOzet) {
     const i = durum.isOzet;
     oz.textContent = `Toplam ${sureYaz(i.sure || 0)}` +
-      (i.toplam_token ? ` · ${sayiKisa(i.toplam_token)} token (CEO ${sayiKisa(i.ceo_token || 0)})` : "");
+      (i.toplam_token ? ` · ${sayiKisa(i.toplam_token)} token (CEO ${sayiKisa(i.ceo_token || 0)})` : "") +
+      (i.toplam_token && i.toplam_maliyet != null ? ` · ${para(i.toplam_maliyet)}${i.maliyet_eksik ? " + fiyatı bilinmeyen kullanım" : ""}` : "");
   }
 }
 
@@ -712,9 +744,17 @@ function olay(o) {
       durum.kuyruk = o.liste;
       kuyrukCiz();
       return;
+    case "canli":
+      if (o.is_id !== durum.isId) return;
+      durum.canli[o.masa] = (durum.canli[o.masa] || "") + o.metin;
+      adimlariCiz();
+      if (durum.secili === o.masa) canliPaneliGuncelle();
+      return;
     case "is_basladi":
       durum.masaDurum = {}; durum.masaAciklama = {}; durum.adimlar = []; durum.plan = ""; durum.sonuc = null;
-      durum.isOzet = null; durum.onay = null; durum.talep = o.talep;
+      durum.isOzet = null; durum.onay = null; durum.talep = o.talep; durum.isId = o.is_id; durum.canli = {};
+      $("#devam-kap").classList.add("gizli");
+      if (o.devam_edilen) kaydet(o.zaman, `Yarıda kalan iş (${o.devam_edilen}) kaldığı yerden sürdürülüyor`);
       $("#kayit").replaceChildren(); $("#hata").classList.add("gizli"); $("#sonuc-gor").classList.add("gizli");
       calisiyorAyarla(true); rozet(o.simulasyon ? "Çalışıyor (simülasyon)" : "Çalışıyor", "calisiyor");
       kaydet(o.zaman, `Yeni talep CEO'ya geldi: ${o.talep}`);
@@ -736,20 +776,25 @@ function olay(o) {
     case "plan":
       if (durum.onay) { durum.onay = null; onayCiz(); rozet("Çalışıyor", "calisiyor"); }
       durum.plan = o.ozet;
-      durum.adimlar = o.adimlar.map((a) => ({ ...a, tur: 0, durum: "bekliyor", cikti: null }));
+      durum.adimlar = o.adimlar.map((a) => {
+        const biten = (o.tamamlanan || []).some((t) => t[0] === a.calisan && t[1] === a.gorev && t[2] === a.asama);
+        return { ...a, tur: 0, durum: biten ? "bitti" : "bekliyor", cikti: null, onceki: biten };
+      });
       kaydet(o.zaman, `CEO planı hazır: ${o.adimlar.length} adım, ${new Set(o.adimlar.map((a) => a.asama)).size} aşama`);
       break;
     case "gorev_atandi": {
       let a = durum.adimlar.find((x) => x.calisan === o.kime && x.tur === o.tur && x.durum === "bekliyor");
       if (!a) { a = { calisan: o.kime, gorev: o.gorev, tur: o.tur, asama: o.asama }; durum.adimlar.push(a); }
       a.durum = "calisiyor"; a.gorev = o.gorev;
+      durum.canli[o.kime] = "";
       kaydet(o.zaman, `CEO → ${isim(o.kime)}: görev verildi`);
       if (canli) kagitUcur(o.kimden, o.kime);
       break;
     }
     case "gorev_bitti": {
       const a = durum.adimlar.find((x) => x.calisan === o.kime && x.tur === o.tur && x.durum === "calisiyor");
-      if (a) { a.durum = "bitti"; a.cikti = o.cikti; a.sure = o.sure; a.token = o.token; }
+      if (a) Object.assign(a, { durum: "bitti", cikti: o.cikti, sure: o.sure, token: o.token, maliyet: o.maliyet, model: o.model });
+      delete durum.canli[o.kime];
       kaydet(o.zaman, `${isim(o.kime)} → CEO: çıktı teslim edildi${o.sure != null ? " (" + sureYaz(o.sure) + ")" : ""}`);
       if (canli) kagitUcur(o.kime, "ceo");
       break;
@@ -775,6 +820,7 @@ function olay(o) {
       break;
     case "is_hatasi":
       durum.onay = null; onayCiz();
+      $("#devam-kap").classList.toggle("gizli", !durum.adimlar.length);
       calisiyorAyarla(false); rozet("Hata", "hata");
       $("#hata").replaceChildren(document.createTextNode(o.mesaj));
       if (o.ayrinti && o.ayrinti !== o.mesaj) {
@@ -793,6 +839,7 @@ function olay(o) {
       break;
     case "is_durduruldu":
       durum.onay = null; onayCiz();
+      $("#devam-kap").classList.toggle("gizli", !durum.adimlar.length);
       calisiyorAyarla(false); rozet("Durduruldu");
       for (const [k, d] of Object.entries(durum.masaDurum)) if (d !== "bitti") durum.masaDurum[k] = "bosta";
       for (const a of durum.adimlar) if (a.durum === "calisiyor") a.durum = "hata";
@@ -811,7 +858,7 @@ function olaylariDinle() {
 }
 
 /* ---------------------------------------------------------------- modal & geçmiş */
-function modalAc(baslik, metin, dosyalar = null, klasor = null, talep = null) {
+function modalAc(baslik, metin, dosyalar = null, klasor = null, talep = null, surdurulebilir = false) {
   $("#modal-baslik").textContent = baslik;
   $("#modal-icerik").innerHTML = md(metin);
   const kap = $("#modal-dosyalar");
@@ -821,6 +868,8 @@ function modalAc(baslik, metin, dosyalar = null, klasor = null, talep = null) {
     $("#modal-zip").href = `/api/is/${encodeURIComponent(klasor)}/zip`;
     $("#modal-devam").onclick = () => devamAyarla(klasor, talep || baslik);
   }
+  $("#modal-surdur").classList.toggle("gizli", !(klasor && surdurulebilir));
+  $("#modal-surdur").onclick = () => { modalKapat(); isiSurdur(klasor); };
   if (dosyalar && klasor) {
     for (const d of dosyalar.filter((x) => x !== "is.json")) {
       const b = document.createElement("button");
@@ -830,7 +879,8 @@ function modalAc(baslik, metin, dosyalar = null, klasor = null, talep = null) {
         kap.querySelectorAll("button").forEach((x) => x.classList.toggle("secili", x === b));
         try {
           const t = await api(`/api/dosya?yol=${encodeURIComponent(klasor + "/" + d)}`);
-          $("#modal-icerik").innerHTML = d.endsWith(".md") ? md(t) : `<pre><code>${kacis(t)}</code></pre>`;
+          if (/\.html?$/i.test(d)) htmlOnizle(t);
+          else $("#modal-icerik").innerHTML = d.endsWith(".md") ? md(t) : `<pre><code>${kacis(t)}</code></pre>`;
         } catch (err) { $("#modal-icerik").textContent = err.message; }
       };
       kap.appendChild(b);
@@ -839,6 +889,34 @@ function modalAc(baslik, metin, dosyalar = null, klasor = null, talep = null) {
   $("#modal").classList.remove("gizli");
 }
 const modalKapat = () => $("#modal").classList.add("gizli");
+
+/* HTML dosyalarını güvenli bir çerçevede çalışır hâlde göster (sayfa Plaza'ya erişemez) */
+function htmlOnizle(kaynak) {
+  const kap = $("#modal-icerik");
+  const cerceve = document.createElement("iframe");
+  cerceve.className = "onizleme";
+  cerceve.setAttribute("sandbox", "allow-scripts");
+  cerceve.srcdoc = kaynak;
+  const dugme = document.createElement("button");
+  dugme.textContent = "Kodu göster";
+  let kod = false;
+  dugme.onclick = () => {
+    kod = !kod;
+    dugme.textContent = kod ? "Önizlemeyi göster" : "Kodu göster";
+    kap.lastChild.replaceWith(kod ? Object.assign(document.createElement("pre"), { innerHTML: `<code>${kacis(kaynak)}</code>` }) : cerceve);
+  };
+  kap.replaceChildren(Object.assign(document.createElement("div"), { className: "satir" }), cerceve);
+  kap.firstChild.append(dugme, Object.assign(document.createElement("span"), { className: "aciklama", textContent: "Canlı önizleme" }));
+}
+
+async function isiSurdur(id) {
+  try {
+    const r = await api(`/api/is/${encodeURIComponent(id)}/devam`, { method: "POST" });
+    if (r.kuyrukta) kaydet(Date.now() / 1000, `Sürdürme isteği sıraya alındı (${r.sira}. sırada)`);
+    durum.secili = null; durum.seciliDep = null; durumlariUygula(); gorunum("gorev");
+  } catch (err) { alert(err.message); }
+}
+$("#devam-et").onclick = () => durum.isId && isiSurdur(durum.isId);
 $("#modal-kapat").onclick = modalKapat;
 $("#modal").onclick = (e) => { if (e.target.id === "modal") modalKapat(); };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") modalKapat(); });
@@ -878,7 +956,9 @@ async function isiAc(id, talep) {
   const d = await api(`/api/is/${id}`);
   const bitti = d.olaylar.find((o) => o.tip === "is_bitti");
   const hata = d.olaylar.find((o) => o.tip === "is_hatasi");
-  modalAc(talep.slice(0, 70), bitti ? bitti.sonuc : hata ? `**Hata:** ${hata.mesaj}` : "_Sonuç yok._", d.dosyalar, id, talep);
+  const son = d.olaylar.at(-1)?.tip;
+  const surdurulebilir = (son === "is_hatasi" || son === "is_durduruldu") && !!d.kayit?.adimlar?.length;
+  modalAc(talep.slice(0, 70), bitti ? bitti.sonuc : hata ? `**Hata:** ${hata.mesaj}` : "_Sonuç yok._", d.dosyalar, id, talep, surdurulebilir);
 }
 
 function projeleriGoster(baslik, projeler) {
@@ -903,6 +983,7 @@ async function istatistikYukle() {
   try { durum.istatistik = await api("/api/istatistik"); } catch { durum.istatistik = null; }
   if (durum.ofis) ofisiCiz();
   if (durum.secili) masaPaneliDoldur();
+  harcamaCiz();
 }
 
 /* ---------------------------------------------------------------- ek dosyalar */
@@ -974,6 +1055,174 @@ $("#tema").addEventListener("click", () => {
   try { localStorage.setItem("plaza-tema", yeni); } catch { /* depolama yok */ }
 });
 
+/* ---------------------------------------------------------------- canlı akış */
+function canliPaneliGuncelle() {
+  const metin = durum.canli[durum.secili];
+  $("#masa-canli-kap").classList.toggle("gizli", !metin);
+  if (metin) {
+    const kutu = $("#masa-canli");
+    const enAltta = kutu.scrollHeight - kutu.scrollTop - kutu.clientHeight < 30;
+    kutu.textContent = metin;
+    if (enAltta) kutu.scrollTop = kutu.scrollHeight;
+  }
+}
+
+/* ---------------------------------------------------------------- sohbet */
+function sohbetCiz() {
+  const kap = $("#sohbet");
+  const liste = durum.sohbetler[durum.secili] || [];
+  kap.replaceChildren(...liste.map((m) => {
+    const d = document.createElement("div");
+    d.className = `mesaj ${m.rol}${m.bekliyor ? " bekliyor" : ""}`;
+    if (m.rol === "asistan" && !m.bekliyor) d.innerHTML = md(m.icerik); else d.textContent = m.icerik;
+    return d;
+  }));
+  kap.scrollTop = kap.scrollHeight;
+}
+$("#sohbet-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const key = durum.secili, f = e.target, metin = f.mesaj.value.trim();
+  if (!key || !metin) return;
+  const liste = (durum.sohbetler[key] ||= []);
+  liste.push({ rol: "kullanici", icerik: metin });
+  const bekleyen = { rol: "asistan", icerik: `${durum.masalar[key]?.isim || ""} yazıyor…`, bekliyor: true };
+  liste.push(bekleyen);
+  f.mesaj.value = ""; sohbetCiz();
+  try {
+    const r = await api(`/api/sohbet/${key}`, {
+      method: "POST",
+      body: JSON.stringify({ mesajlar: liste.filter((m) => !m.bekliyor && !m.hata).slice(-20).map(({ rol, icerik }) => ({ rol, icerik })) }),
+    });
+    Object.assign(bekleyen, { icerik: r.yanit, bekliyor: false });
+  } catch (err) {
+    Object.assign(bekleyen, { icerik: `⚠ ${err.message}`, bekliyor: false, hata: true });
+  }
+  if (durum.secili === key) sohbetCiz();
+});
+$("#sohbet-form").mesaj.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#sohbet-form").requestSubmit();
+});
+$("#sohbet-temizle").onclick = () => { delete durum.sohbetler[durum.secili]; sohbetCiz(); };
+
+/* ---------------------------------------------------------------- şablonlar */
+function sablonlariCiz() {
+  $("#gorev-sablonlari").replaceChildren(...GOREV_SABLONLARI.map(([ad, metin]) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = ad; b.title = metin;
+    b.onclick = () => {
+      const t = $("#talep");
+      t.value = metin; t.focus();
+      const i = metin.indexOf("…");
+      if (i >= 0) t.setSelectionRange(i, i + 1);
+    };
+    return b;
+  }));
+  $("#sablon-sec").replaceChildren(...Object.entries(durum.ofis.sablonlar).map(([k, v]) =>
+    new Option(`${v.ad} — ${v.aciklama} (${v.calisan} kişi)`, k)));
+}
+$("#sablon-ekle").onclick = async () => {
+  const id = $("#sablon-sec").value;
+  const onceki = new Set(durum.ofis.departmanlar.map((d) => d.key));
+  if (await islem(() => api(`/api/sablon/${id}`, { method: "POST" }))) {
+    const yeni = durum.ofis.departmanlar.find((d) => !onceki.has(d.key));
+    if (yeni) departmanSec(yeni.key);
+  }
+};
+
+/* ---------------------------------------------------------------- zamanlanmış görevler */
+function zamanlanmisCiz() {
+  const ul = $("#zamanlanmis");
+  $("#zamanlanmis-sayi").textContent = durum.zamanlanmis.length ? `(${durum.zamanlanmis.length})` : "";
+  ul.replaceChildren(...durum.zamanlanmis.map((z) => {
+    const li = document.createElement("li");
+    const gunler = z.gunler.length ? z.gunler.map((g) => GUN_ADLARI[g]).join(", ") : "her gün";
+    li.innerHTML = `<span title="${kacis(z.talep)}">${z.aktif ? "" : "⏸ "}<b>${kacis(z.saat)}</b> · ${kacis(gunler)}${z.simulasyon ? " · sim." : ""}<br>${kacis(z.talep)}${z.son_sonuc ? `<small>Son: ${kacis(z.son_sonuc)}</small>` : ""}</span>`;
+    const ac = document.createElement("button");
+    ac.textContent = z.aktif ? "Duraklat" : "Etkinleştir";
+    ac.onclick = async () => { durum.zamanlanmis = await api(`/api/zamanlanmis/${z.id}`, { method: "PUT", body: JSON.stringify({ aktif: !z.aktif }) }); zamanlanmisCiz(); };
+    const sil = document.createElement("button");
+    sil.textContent = "Sil";
+    sil.onclick = async () => { if (!confirm("Bu zamanlanmış görev silinsin mi?")) return; durum.zamanlanmis = await api(`/api/zamanlanmis/${z.id}`, { method: "DELETE" }); zamanlanmisCiz(); };
+    li.append(ac, sil);
+    return li;
+  }));
+}
+$("#zamanlanmis-gunler").replaceChildren(...GUN_ADLARI.map((g, i) => {
+  const l = document.createElement("label");
+  l.innerHTML = `<input type="checkbox" value="${i}"> ${g}`;
+  return l;
+}));
+$("#zamanlanmis-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    durum.zamanlanmis = await api("/api/zamanlanmis", {
+      method: "POST",
+      body: JSON.stringify({
+        talep: f.talep.value.trim(), saat: f.saat.value, simulasyon: f.simulasyon.checked,
+        gunler: [...$("#zamanlanmis-gunler").querySelectorAll("input:checked")].map((i) => +i.value),
+      }),
+    });
+    f.talep.value = "";
+    zamanlanmisCiz();
+  } catch (err) { alert(err.message); }
+});
+async function zamanlanmisYukle() {
+  try { durum.zamanlanmis = await api("/api/zamanlanmis"); } catch { durum.zamanlanmis = []; }
+  zamanlanmisCiz();
+}
+
+/* ---------------------------------------------------------------- ayarlar ve harcama */
+function harcamaCiz() {
+  const h = durum.istatistik?.harcama;
+  if (!h) return;
+  const usd = (x) => (x ? para(x) : "$0");
+  $("#harcama-ozet").textContent = `· bu ay ${usd(h.bu_ay)}`;
+  const aylar = Object.entries(h.aylar).slice(0, 6).map(([ay, t]) => `${ay}: ${usd(t)}`).join(" · ");
+  $("#harcama-ayrinti").textContent = `Aylık harcama (simülasyonlar hariç): ${aylar || "henüz yok"}` +
+    (h.eksik ? ". Not: fiyatı bilinmeyen modellerin kullanımı toplama katılmadı." : ".");
+}
+function genelFormuDoldur() {
+  const g = durum.ofis.genel, f = $("#genel-form");
+  $("#hiz-alanlari").replaceChildren(...Object.entries(durum.ofis.saglayicilar).map(([k, sg]) => {
+    const l = document.createElement("label");
+    l.innerHTML = `<span>${kacis(sg.ad)}</span><input type="number" min="0" max="10000" name="hiz_${k}" value="${g.hiz[k] ?? 0}">`;
+    return l;
+  }));
+  f.canli_akis.checked = !!g.canli_akis;
+  const tahmini = new Set(durum.ofis.tahmini_fiyat);
+  $("#fiyat-alanlari").replaceChildren(...durum.ofis.modeller.filter((m) => m.saglayici !== "yerel").map((m) => {
+    const fiyat = g.fiyatlar[m.id] || durum.ofis.varsayilan_fiyatlar[m.id];
+    const l = document.createElement("label");
+    l.dataset.model = m.id;
+    const isaret = tahmini.has(m.id.split("/")[0]) ? " *" : "";
+    l.innerHTML = `<span>${kacis(m.ad)}${isaret}</span>` +
+      `<input type="number" step="0.001" min="0" placeholder="?" aria-label="${kacis(m.ad)} giriş fiyatı" value="${fiyat ? fiyat[0] : ""}">` +
+      `<input type="number" step="0.001" min="0" placeholder="?" aria-label="${kacis(m.ad)} çıkış fiyatı" value="${fiyat ? fiyat[1] : ""}">`;
+    return l;
+  }));
+}
+$("#genel-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const hiz = {};
+  for (const k of Object.keys(durum.ofis.saglayicilar)) hiz[k] = +(f[`hiz_${k}`].value || 0);
+  const fiyatlar = {};
+  for (const l of $("#fiyat-alanlari").children) {
+    const [g, c] = l.querySelectorAll("input");
+    const vars = durum.ofis.varsayilan_fiyatlar[l.dataset.model];
+    if (g.value === "" || c.value === "") { fiyatlar[l.dataset.model] = null; continue; }
+    const yeni = [+g.value, +c.value];
+    fiyatlar[l.dataset.model] = vars && vars[0] === yeni[0] && vars[1] === yeni[1] ? null : yeni;
+  }
+  try {
+    durum.ofis = await api("/api/genel", { method: "PUT", body: JSON.stringify({ hiz, fiyatlar, canli_akis: f.canli_akis.checked }) });
+    genelFormuDoldur();
+    $("#genel-kaydedildi").classList.remove("gizli");
+    setTimeout(() => $("#genel-kaydedildi").classList.add("gizli"), 2000);
+  } catch (err) { alert(err.message); }
+});
+
 /* ---------------------------------------------------------------- başlat */
 (async function baslat() {
   durum.ofis = await api("/api/ofis");
@@ -983,7 +1232,11 @@ $("#tema").addEventListener("click", () => {
   }
   ofisiCiz();
   adimlariCiz();
+  sablonlariCiz();
+  genelFormuDoldur();
   gecmisiYukle();
   istatistikYukle();
+  zamanlanmisYukle();
+  setInterval(zamanlanmisYukle, 60000);
   olaylariDinle();
 })();
