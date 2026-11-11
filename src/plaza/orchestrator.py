@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
-from .hatalar import gecici_mi, onerilen_bekleme
+from .hatalar import bekleme_aciklamasi, gecici_mi, onerilen_bekleme
 from .office import make_llm
 from .settings import Desk, Office, arac_destekli
 from .tools import build_tools
@@ -267,7 +267,7 @@ class IsAkisi:
                     raise
                 bekle = onerilen_bekleme(e, BEKLEMELER[deneme])
                 self.emit("durum", masa=masa, durum="bekliyor",
-                          aciklama=f"Sunucu yoğun, {bekle:.0f} sn sonra tekrar deneniyor ({deneme + 1}/{len(BEKLEMELER)})")
+                          aciklama=bekleme_aciklamasi(e, bekle, deneme + 1, len(BEKLEMELER)))
                 if self.iptal.wait(bekle):
                     raise Durduruldu()
                 self.emit("durum", masa=masa, durum=durum, aciklama="Tekrar deniyor")
@@ -313,7 +313,10 @@ class IsAkisi:
             "Talebi analiz et ve aşamalı bir iş planı çıkar. Her adım tek bir çalışana verilen net bir talimattır. "
             "Aşamalar sırayla yürür; AYNI aşamadaki adımlar paralel çalışır ve yalnızca önceki aşamaların "
             "çıktılarını görür. Birbirinin çıktısına ihtiyaç duymayan işleri aynı aşamaya koyarak işi hızlandır; "
-            "bağımlı işleri sonraki aşamalara koy. Yalnızca gerekli çalışanları dahil et.\n\n"
+            "bağımlı işleri sonraki aşamalara koy.\n"
+            "ÖNEMLİ: Yalnızca gerçekten gerekli çalışanları dahil et; her ek çalışan zaman ve maliyet demektir. "
+            "Basit bir talep (ör. kısa bir metin, tek bir sayfa, küçük bir kod) için 1-2 çalışan yeterlidir; "
+            "tüm ekibi yalnızca büyük ve çok yönlü işlerde kullan.\n\n"
             'Yalnızca şu biçimde JSON döndür:\n{"ozet": "planın kısa özeti", '
             '"adimlar": [{"asama": 1, "calisan": "<anahtar>", "gorev": "çalışana talimat"}]}'
         )

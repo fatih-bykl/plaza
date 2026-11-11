@@ -19,7 +19,7 @@ _GECICI = re.compile(
 )
 # Beklemekle düzelmeyecek durumlar (geçici kalıplardan önce kontrol edilir)
 _KALICI = re.compile(
-    r"limit: 0\b|per ?day|PerDay|credit balance|insufficient.?(balance|quota)|billing|"
+    r"limit: 0\b|per ?day|PerDay|credit balance|insufficient.?(balance|quota)|"
     r"api.?key (not valid|invalid)|invalid.{0,20}api.?key|PERMISSION_DENIED|\b401\b|\b403\b|"
     r"not.?found|\b404\b|does not support|MissingAPIKey",
     re.I,
@@ -50,6 +50,18 @@ def onerilen_bekleme(e: BaseException, varsayilan: float) -> float:
         except ValueError:
             pass
     return varsayilan
+
+
+def bekleme_aciklamasi(e: BaseException, saniye: float, deneme: int, toplam: int) -> str:
+    """Masada beklerken gösterilecek kısa açıklama."""
+    m = _metin(e)
+    if re.search(r"\b429\b|rate.?limit|RESOURCE_EXHAUSTED", m, re.I):
+        neden = "Dakikalık istek sınırı doldu"
+    elif re.search(r"connection|timed? ?out|timeout", m, re.I):
+        neden = "Bağlantı koptu"
+    else:
+        neden = "Sunucu yoğun"
+    return f"{neden}, {saniye:.0f} sn sonra tekrar deneniyor ({deneme}/{toplam})"
 
 
 def turkce_mesaj(e: BaseException) -> str:
