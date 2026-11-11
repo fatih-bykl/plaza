@@ -23,6 +23,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
+from .hatalar import gecici_mi, onerilen_bekleme
 from .office import make_llm
 from .settings import Desk, Office, arac_destekli
 from .tools import build_tools
@@ -30,6 +31,7 @@ from .tools import build_tools
 Emit = Callable[..., None]
 MAX_BAGLAM = 6000
 MAX_EK = 4000
+BEKLEMELER = (5, 15, 30)  # geçici hatalarda yeniden deneme aralıkları (sn)
 
 
 class Durduruldu(Exception):
@@ -191,9 +193,13 @@ class IsAkisi:
         desk = self.office.desk(a.calisan)
         bas = time.monotonic()
         try:
-            cikti, token = self._calisan(desk, a.gorev, tur, onceki)
-        except Exception:
+            cikti, token = self._yeniden_dene(
+                desk.key, "calisiyor", lambda: self._calisan(desk, a.gorev, tur, onceki))
+        except Durduruldu:
+            raise
+        except Exception as e:
             self.emit("durum", masa=desk.key, durum="hata", aciklama="Görev başarısız")
+            e.plaza_masa = f"{desk.isim} ({desk.role})"  # hata mesajında hangi masa olduğu görünsün
             raise
         sure = round(time.monotonic() - bas, 1)
         with self._kilit:
@@ -232,13 +238,39 @@ class IsAkisi:
             f"- {s.key}: {s.isim}, {s.role} ({s.department}) — {s.goal}" for s in self.office.aktif_calisanlar()
         )
 
-    def _ceo_cagir(self, kullanici: str) -> str:
+    def _ceo_cagir(self, kullanici: str, durum: str = "dusunuyor") -> str:
         if self._ceo_llm is None:
             self._ceo_llm = make_llm(self.office.ceo.model)
-        return _temizle(str(self._ceo_llm.call([
+        mesajlar = [
             {"role": "system", "content": self._ceo_sistem()},
             {"role": "user", "content": kullanici},
-        ])))
+        ]
+        try:
+            yanit = self._yeniden_dene("ceo", durum, lambda: self._ceo_llm.call(mesajlar))
+        except Durduruldu:
+            raise
+        except Exception as e:
+            self.emit("durum", masa="ceo", durum="hata", aciklama="Yanıt alınamadı")
+            e.plaza_masa = f"{self.office.ceo.isim} (CEO)"
+            raise
+        return _temizle(str(yanit))
+
+    def _yeniden_dene(self, masa: str, durum: str, islem):
+        """Geçici hatalarda (sunucu yoğun, dakikalık sınır, bağlantı) bekleyip yeniden dener."""
+        for deneme in range(len(BEKLEMELER) + 1):
+            try:
+                return islem()
+            except Durduruldu:
+                raise
+            except Exception as e:
+                if deneme == len(BEKLEMELER) or not gecici_mi(e):
+                    raise
+                bekle = onerilen_bekleme(e, BEKLEMELER[deneme])
+                self.emit("durum", masa=masa, durum="bekliyor",
+                          aciklama=f"Sunucu yoğun, {bekle:.0f} sn sonra tekrar deneniyor ({deneme + 1}/{len(BEKLEMELER)})")
+                if self.iptal.wait(bekle):
+                    raise Durduruldu()
+                self.emit("durum", masa=masa, durum=durum, aciklama="Tekrar deniyor")
 
     def _adimlari_dogrula(self, ham: list) -> list[Adim]:
         aktif = {s.key for s in self.office.aktif_calisanlar()}
@@ -339,7 +371,7 @@ class IsAkisi:
                 f"# Nihai Teslimat (simülasyon)\n\n**Talep:** {self.talep}{ek}{devam}\n\n## Kim ne yaptı\n{satirlar}\n\n"
                 "## Not\nBu bir simülasyon çıktısıdır; Claude çağrılmadı."
             )
-        return self._ceo_cagir(
+        return self._ceo_cagir(durum="calisiyor", kullanici=
             f"Talep:\n{self.talep}{self._ek_baglam()}\n\nDepartmanlardan gelen nihai çıktılar:\n\n"
             f"{self._ciktilar_metni()}\n\n"
             "Talep sahibine sunulacak nihai teslimatı Markdown olarak yaz: sonucun kendisi (talep bir "

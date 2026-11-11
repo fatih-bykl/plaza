@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, Response, Streami
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .hatalar import turkce_mesaj
 from .orchestrator import Durduruldu, IsAkisi
 from .settings import (
     MAX_MASA,
@@ -296,15 +297,10 @@ def _isi_yurut(is_: Is, office, ekler, onceki_sonuc: str) -> None:
     except Durduruldu:
         emit("is_durduruldu")
     except Exception as e:  # noqa: BLE001 — hatayı arayüze göster
-        mesaj = str(e)
-        try:
-            import anthropic
-
-            if isinstance(e, anthropic.APIStatusError) and isinstance(e.body, dict):
-                mesaj = f"Claude API {e.status_code}: {e.body.get('error', {}).get('message', mesaj)}"
-        except ImportError:
-            pass
-        emit("is_hatasi", mesaj=mesaj or e.__class__.__name__)
+        masa = getattr(e, "plaza_masa", None)
+        mesaj = turkce_mesaj(e)
+        emit("is_hatasi", mesaj=f"{masa}: {mesaj}" if masa else mesaj,
+             ayrinti=(str(e) or e.__class__.__name__)[:600])
     finally:
         is_.klasor.mkdir(parents=True, exist_ok=True)
         meta = {"id": is_.id, "talep": is_.talep, "simulasyon": istek.simulasyon, "olaylar": is_.olaylar}

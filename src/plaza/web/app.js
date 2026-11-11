@@ -757,7 +757,17 @@ function olay(o) {
     case "is_hatasi":
       durum.onay = null; onayCiz();
       calisiyorAyarla(false); rozet("Hata", "hata");
-      $("#hata").textContent = o.mesaj; $("#hata").classList.remove("gizli");
+      $("#hata").replaceChildren(document.createTextNode(o.mesaj));
+      if (o.ayrinti && o.ayrinti !== o.mesaj) {
+        const d = document.createElement("details");
+        const s = document.createElement("summary");
+        s.textContent = "Teknik ayrıntı";
+        const p = document.createElement("pre");
+        p.textContent = o.ayrinti;
+        d.append(s, p);
+        $("#hata").appendChild(d);
+      }
+      $("#hata").classList.remove("gizli");
       for (const [k, d] of Object.entries(durum.masaDurum)) if (["dusunuyor", "calisiyor", "bekliyor"].includes(d)) durum.masaDurum[k] = "hata";
       kaydet(o.zaman, `HATA: ${o.mesaj}`);
       if (canli) { bildir("Plaza: hata", o.mesaj); gecmisiYukle(); }
