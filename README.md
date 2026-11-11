@@ -93,6 +93,22 @@ Her masa farklı bir sağlayıcının modelini kullanabilir. Gereken anahtarlar 
 | Anthropic | `ANTHROPIC_API_KEY` | `anthropic/claude-opus-5-5` |
 | Google | `GOOGLE_API_KEY` ya da `GEMINI_API_KEY` | `gemini/gemini-4-argon` |
 | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek/deepseek-v4-pro` |
+| Yerel (Ollama) | gerekmez | `ollama/deepseek-r1:8b` |
+
+### API'siz yerel DeepSeek (Ollama)
+
+DeepSeek R1 modelleri bu bilgisayarda [Ollama](https://ollama.com) ile, API anahtarı ve ücret olmadan
+çalışır. 8B modeli (5.2 GB) 8 GB ekran kartına sığar; 14B (9 GB) daha yavaş çalışır.
+
+```bash
+sudo pacman -S ollama-cuda          # NVIDIA ekran kartı için
+sudo systemctl enable --now ollama
+ollama pull deepseek-r1:8b          # ya da deepseek-r1:14b
+```
+
+Ardından masada "Yerel — Ollama" grubundan modeli seçin. Ollama'da kurulu başka modeller de
+listede otomatik görünür. Not: DeepSeek R1 araç çağırmayı desteklemez; bu masalar dosya yazamaz,
+dosya içeriklerini çıktılarında verir. Modelin `<think>` düşünce bölümleri çıktıdan temizlenir.
 
 Anahtarı olmayan sağlayıcılar seçim listesinde işaretlenir; gerçek bir görev başlatılırken eksik
 anahtar varsa hangi masanın neye ihtiyaç duyduğu söylenir.

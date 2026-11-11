@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from .orchestrator import Durduruldu, IsAkisi
 from .settings import (
     MAX_MASA,
-    MODELLER,
+    model_listesi,
     SAGLAYICILAR,
     anahtar_durumu,
     eksik_anahtarlar,
@@ -118,6 +118,15 @@ yayin = Yayin()
 app = FastAPI(title="Plaza Ofis")
 
 
+@app.middleware("http")
+async def _onbellek_yok(request: Request, call_next):
+    """Arayüz dosyaları her açılışta tazelensin (güncellemeden sonra eski JS/CSS kalmasın)."""
+    yanit = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        yanit.headers["Cache-Control"] = "no-cache"
+    return yanit
+
+
 def _api_anahtari_var() -> bool:
     return any(anahtar_durumu().values())
 
@@ -139,7 +148,7 @@ def index() -> FileResponse:
 def ofis() -> dict:
     return {
         **load_office().to_dict(),
-        "modeller": MODELLER,
+        "modeller": model_listesi(),
         "araclar": list(TOOL_TYPES),
         "api_anahtari": _api_anahtari_var(),
         "saglayicilar": {k: {"ad": v["ad"], "anahtarlar": v["anahtarlar"], "hazir": anahtar_durumu()[k]}
@@ -321,8 +330,8 @@ def gorev_ver(istek: GorevIstegi) -> dict:
         if eksik:
             raise HTTPException(
                 400,
-                "Şu masaların yapay zekâsı için API anahtarı yok — .env dosyasına ekleyin, masanın modelini "
-                "değiştirin ya da simülasyonu açın: " + "; ".join(eksik),
+                "Şu masaların yapay zekâsı hazır değil — eksikleri giderin, masanın modelini değiştirin "
+                "ya da simülasyonu açın: " + "; ".join(eksik),
             )
     if istek.onceki_is:
         _is_klasoru(istek.onceki_is)

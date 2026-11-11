@@ -53,8 +53,10 @@ function modelKisa(id) {
 function modelSecenekleri(sec, ozelEkle = false) {
   const gruplar = Object.entries(durum.ofis.saglayicilar).map(([key, sg]) => {
     const g = document.createElement("optgroup");
-    g.label = sg.hazir ? sg.ad : `${sg.ad} — API anahtarı yok`;
-    g.append(...durum.ofis.modeller.filter((m) => m.saglayici === key).map((m) => new Option(m.ad, m.id)));
+    const yerel = key === "yerel";
+    g.label = sg.hazir ? sg.ad : `${sg.ad} — ${yerel ? "Ollama çalışmıyor" : "API anahtarı yok"}`;
+    g.append(...durum.ofis.modeller.filter((m) => m.saglayici === key)
+      .map((m) => new Option(yerel && sg.hazir && !m.kurulu ? `${m.ad} — indirilmemiş` : m.ad, m.id)));
     return g;
   });
   sec.replaceChildren(...gruplar);
@@ -65,8 +67,16 @@ function modelUyarisi(modelId) {
   const m = durum.ofis.modeller.find((x) => x.id === modelId);
   const sg = m && durum.ofis.saglayicilar[m.saglayici];
   const kap = $("#model-uyari");
-  kap.classList.toggle("gizli", !sg || sg.hazir);
-  if (sg && !sg.hazir) kap.textContent = `Bu model için .env dosyasına ${sg.anahtarlar.join(" veya ")} eklenmeli (simülasyonda gerekmez).`;
+  let uyari = "";
+  if (m?.saglayici === "yerel") {
+    const ad = m.id.replace(/^ollama(_chat)?\//, "");
+    if (!sg.hazir) uyari = "Bu model bilgisayarınızda Ollama ile çalışır; API anahtarı gerekmez. Ollama kurulu değil ya da çalışmıyor (kurulum için README'ye bakın).";
+    else if (!m.kurulu) uyari = `Model henüz indirilmemiş. Terminalde: ollama pull ${ad}`;
+  } else if (sg && !sg.hazir) {
+    uyari = `Bu model için .env dosyasına ${sg.anahtarlar.join(" veya ")} eklenmeli (simülasyonda gerekmez).`;
+  }
+  kap.classList.toggle("gizli", !uyari);
+  kap.textContent = uyari;
 }
 
 async function api(yol, secenek = {}) {

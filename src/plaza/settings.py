@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
+import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -22,9 +24,13 @@ DUZENLENEBILIR = {"isim", "model", "role", "goal", "backstory", "tools", "aktif"
 SAGLAYICILAR = {
     "anthropic": {"ad": "Anthropic (Claude)", "anahtarlar": ["ANTHROPIC_API_KEY"]},
     "google": {"ad": "Google (Gemini)", "anahtarlar": ["GOOGLE_API_KEY", "GEMINI_API_KEY"]},
-    "deepseek": {"ad": "DeepSeek", "anahtarlar": ["DEEPSEEK_API_KEY"]},
+    "deepseek": {"ad": "DeepSeek (bulut API)", "anahtarlar": ["DEEPSEEK_API_KEY"]},
+    "yerel": {"ad": "Yerel — Ollama (API'siz, ücretsiz)", "anahtarlar": []},
 }
-_ONEK = {"anthropic": "anthropic", "claude": "anthropic", "gemini": "google", "google": "google", "deepseek": "deepseek"}
+_ONEK = {
+    "anthropic": "anthropic", "claude": "anthropic", "gemini": "google", "google": "google",
+    "deepseek": "deepseek", "ollama": "yerel", "ollama_chat": "yerel",
+}
 
 MODELLER = [
     {"id": "anthropic/claude-opus-5-5", "ad": "Claude Opus 5.5", "kisa": "Opus 5.5", "saglayici": "anthropic"},
@@ -37,9 +43,85 @@ MODELLER = [
     {"id": "gemini/gemini-3.5-flash-lite", "ad": "Gemini 3.5 Flash-Lite", "kisa": "Gemini Flash-Lite", "saglayici": "google"},
     {"id": "deepseek/deepseek-v4-pro", "ad": "DeepSeek V4 Pro", "kisa": "DeepSeek V4 Pro", "saglayici": "deepseek"},
     {"id": "deepseek/deepseek-flash", "ad": "DeepSeek Flash", "kisa": "DeepSeek Flash", "saglayici": "deepseek"},
+    # Bu bilgisayarda Ollama ile çalışan, API anahtarı gerektirmeyen modeller
+    {"id": "ollama/deepseek-r1:8b", "ad": "DeepSeek R1 8B (5.2 GB)", "kisa": "DeepSeek R1 8B · yerel",
+     "saglayici": "yerel"},
+    {"id": "ollama/deepseek-r1:14b", "ad": "DeepSeek R1 14B (9 GB, daha yavaş)", "kisa": "DeepSeek R1 14B · yerel",
+     "saglayici": "yerel"},
 ]
 
 
+# ------------------------------------------------------------- yerel (Ollama)
+def _ollama_adresi() -> str:
+    adres = os.getenv("OLLAMA_HOST", "http://localhost:11434").strip().rstrip("/")
+    if not adres.startswith("http"):
+        adres = "http://" + adres
+    return adres.removesuffix("/v1")
+
+
+_ollama_onbellek: dict[str, tuple[float, object]] = {}
+
+
+def _ollama(yol: str, veri: dict | None = None, sure: float = 5.0):
+    """Ollama'ya kısa bir istek; çalışmıyorsa None. Sonuç birkaç saniye önbelleklenir."""
+    anahtar = yol + json.dumps(veri or {}, sort_keys=True)
+    simdi = time.monotonic()
+    if anahtar in _ollama_onbellek and simdi - _ollama_onbellek[anahtar][0] < sure:
+        return _ollama_onbellek[anahtar][1]
+    try:
+        istek = urllib.request.Request(
+            _ollama_adresi() + yol,
+            data=json.dumps(veri).encode() if veri is not None else None,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(istek, timeout=1.5) as r:
+            sonuc = json.loads(r.read())
+    except (OSError, ValueError):
+        sonuc = None
+    _ollama_onbellek[anahtar] = (simdi, sonuc)
+    return sonuc
+
+
+def ollama_modelleri() -> list[str] | None:
+    """Kurulu Ollama modelleri; Ollama çalışmıyorsa None."""
+    veri = _ollama("/api/tags")
+    return None if veri is None else [m["name"] for m in veri.get("models", [])]
+
+
+def _ollama_adi(model: str) -> str:
+    return model.split("/", 1)[1] if "/" in model else model
+
+
+def ollama_kurulu_mu(model: str, kurulu: list[str] | None = None) -> bool:
+    kurulu = ollama_modelleri() if kurulu is None else kurulu
+    ad = _ollama_adi(model)
+    return bool(kurulu) and (ad in kurulu or f"{ad}:latest" in kurulu)
+
+
+def arac_destekli(model: str) -> bool:
+    """Model dosya araçlarını (function calling) kullanabilir mi? Bulut modelleri: evet."""
+    if saglayici(model) != "yerel":
+        return True
+    bilgi = _ollama("/api/show", {"model": _ollama_adi(model)}, sure=300)
+    return bool(bilgi) and "tools" in bilgi.get("capabilities", [])
+
+
+def model_listesi() -> list[dict]:
+    """Hazır modeller + Ollama'da kurulu olup listede olmayanlar; yerel modeller için 'kurulu' bilgisi."""
+    kurulu = ollama_modelleri()
+    liste = [dict(m) for m in MODELLER]
+    for m in liste:
+        if m["saglayici"] == "yerel":
+            m["kurulu"] = ollama_kurulu_mu(m["id"], kurulu)
+    bilinen = {_ollama_adi(m["id"]) for m in liste if m["saglayici"] == "yerel"}
+    for ad in kurulu or []:
+        if ad not in bilinen and ad.removesuffix(":latest") not in bilinen:
+            liste.append({"id": f"ollama/{ad}", "ad": f"{ad} (kurulu)", "kisa": f"{ad} · yerel",
+                          "saglayici": "yerel", "kurulu": True})
+    return liste
+
+
+# ------------------------------------------------------------- hazırlık
 def saglayici(model: str) -> str | None:
     """'gemini/gemini-4-argon' → 'google'. Bilinmeyen önek için None."""
     onek = model.split("/", 1)[0].lower() if "/" in model else ("anthropic" if model.startswith("claude-") else "")
@@ -47,6 +129,8 @@ def saglayici(model: str) -> str | None:
 
 
 def anahtar_var(saglayici_adi: str) -> bool:
+    if saglayici_adi == "yerel":
+        return ollama_modelleri() is not None  # anahtar gerekmez; Ollama çalışıyor mu?
     return any(os.getenv(k, "").strip() for k in SAGLAYICILAR[saglayici_adi]["anahtarlar"])
 
 
@@ -55,15 +139,27 @@ def anahtar_durumu() -> dict[str, bool]:
 
 
 def eksik_anahtarlar(office: "Office") -> list[str]:
-    """Aktif masaların (ve CEO'nun) modelleri için tanımlı olmayan API anahtarları."""
+    """Aktif masaların (ve CEO'nun) modellerini çalıştırmak için eksik olanlar."""
     eksik = []
     for d in [office.ceo, *office.aktif_calisanlar()]:
         s = saglayici(d.model)
-        if s and not anahtar_var(s):
-            mesaj = f"{d.isim} ({SAGLAYICILAR[s]['ad']}): {' veya '.join(SAGLAYICILAR[s]['anahtarlar'])}"
-            if mesaj not in eksik:
-                eksik.append(mesaj)
+        if not s:
+            continue
+        if s == "yerel":
+            if ollama_modelleri() is None:
+                mesaj = f"{d.isim}: Ollama çalışmıyor (sudo systemctl start ollama)"
+            elif not ollama_kurulu_mu(d.model):
+                mesaj = f"{d.isim}: '{_ollama_adi(d.model)}' modeli indirilmemiş (ollama pull {_ollama_adi(d.model)})"
+            else:
+                continue
+        elif not anahtar_var(s):
+            mesaj = f"{d.isim} ({SAGLAYICILAR[s]['ad']}): {' veya '.join(SAGLAYICILAR[s]['anahtarlar'])} yok"
+        else:
+            continue
+        if mesaj not in eksik:
+            eksik.append(mesaj)
     return eksik
+
 
 MAX_MASA = 6  # bir odaya sığan masa sayısı
 

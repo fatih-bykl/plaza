@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 from .office import make_llm
-from .settings import Desk, Office
+from .settings import Desk, Office, arac_destekli
 from .tools import build_tools
 
 Emit = Callable[..., None]
@@ -48,6 +48,12 @@ def _json_ayikla(metin: str) -> dict:
     if not m:
         raise ValueError("Yanıtta JSON bulunamadı")
     return json.loads(m.group(0))
+
+
+def _temizle(metin: str) -> str:
+    """Düşünen modellerin (ör. DeepSeek R1) <think>…</think> bölümlerini çıkarır."""
+    metin = re.sub(r"<think>.*?</think>", "", metin, flags=re.S)
+    return re.sub(r"^.*?</think>", "", metin, flags=re.S).strip()
 
 
 def _kisalt(s: str, n: int = MAX_BAGLAM) -> str:
@@ -229,10 +235,10 @@ class IsAkisi:
     def _ceo_cagir(self, kullanici: str) -> str:
         if self._ceo_llm is None:
             self._ceo_llm = make_llm(self.office.ceo.model)
-        return str(self._ceo_llm.call([
+        return _temizle(str(self._ceo_llm.call([
             {"role": "system", "content": self._ceo_sistem()},
             {"role": "user", "content": kullanici},
-        ]))
+        ])))
 
     def _adimlari_dogrula(self, ham: list) -> list[Adim]:
         aktif = {s.key for s in self.office.aktif_calisanlar()}
@@ -365,11 +371,15 @@ class IsAkisi:
             baglam += f"\n\nBu bir REVİZYON. Önceki çıktın:\n{_kisalt(onceki[desk.key])}"
 
         llm = make_llm(desk.model)
+        araclar = build_tools(desk.tools, self.workdir) if arac_destekli(desk.model) else []
+        if desk.tools and not araclar:
+            baglam += ("\n\nNot: Kullandığın yerel model dosya araçlarını desteklemiyor; dosya yazamazsın. "
+                       "Üretmen gereken dosyaların içeriğini çıktında dosya adlarıyla birlikte ver.")
         agent = Agent(
             role=desk.role,
             goal=desk.goal,
             backstory=f"Adın {desk.isim}. {desk.backstory}\n{desk.department} çalışanısın. Her zaman Türkçe yanıt verirsin.",
-            tools=build_tools(desk.tools, self.workdir),
+            tools=araclar,
             llm=llm,
             allow_delegation=False,
             verbose=False,
@@ -385,4 +395,4 @@ class IsAkisi:
         )
         sonuc = Crew(agents=[agent], tasks=[task], process=Process.sequential, verbose=False).kickoff()
         token = _token(sonuc.token_usage) or _token(llm.get_token_usage_summary())
-        return str(sonuc.raw), token
+        return _temizle(str(sonuc.raw)), token
