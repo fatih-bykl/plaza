@@ -227,6 +227,25 @@ function odaCiz(svg, h, x, y, kapiYonu) {
       arti.addEventListener("keydown", (e) => { if (e.key === "Enter") ac(e); });
     }
   }
+  if (h.tur === "dep" || h.tur === "ceo") {
+    // başarıyla biten proje sayısı
+    const dkey = h.tur === "ceo" ? "ceo" : h.dep.key;
+    const projeler = durum.istatistik?.projeler?.[dkey] || [];
+    const artiVar = h.tur === "dep" && h.dep.staff.length < durum.ofis.max_masa;
+    const rx = yaziGen + (artiVar ? 30 : 6);
+    const metin = `🏆 ${projeler.length}`;
+    const gen = metin.length * 7 + 14;
+    const rozet = el("g", {
+      class: "oda-rozet", transform: `translate(${rx} 0)`, tabindex: 0, role: "button",
+      "aria-label": `${baslik}: başarıyla biten ${projeler.length} proje`,
+    }, et);
+    el("rect", { width: gen, height: 22, rx: 11, filter: "url(#golge)" }, rozet);
+    el("text", { x: gen / 2, y: 15.5 }, rozet).textContent = metin;
+    el("title", {}, rozet).textContent = `Başarıyla biten proje: ${projeler.length}`;
+    const ac = (e) => { e.stopPropagation(); projeleriGoster(baslik, projeler); };
+    rozet.addEventListener("click", ac);
+    rozet.addEventListener("keydown", (e) => { if (e.key === "Enter") ac(e); });
+  }
 
   // dekor
   const bitkiY = kapiYonu === "alt" ? 26 : H - 26;
@@ -850,18 +869,39 @@ async function gecmisiYukle() {
   for (const j of liste) {
     const li = document.createElement("li");
     li.innerHTML = `${kacis(j.talep.slice(0, 90))}<small>${kacis(j.id)} · ${etiket[j.durum] || j.durum}${j.simulasyon ? " · simülasyon" : ""}</small>`;
-    li.onclick = async () => {
-      const d = await api(`/api/is/${j.id}`);
-      const bitti = d.olaylar.find((o) => o.tip === "is_bitti");
-      const hata = d.olaylar.find((o) => o.tip === "is_hatasi");
-      modalAc(j.talep.slice(0, 70), bitti ? bitti.sonuc : hata ? `**Hata:** ${hata.mesaj}` : "_Sonuç yok._", d.dosyalar, j.id, j.talep);
-    };
+    li.onclick = () => isiAc(j.id, j.talep);
     ul.appendChild(li);
   }
 }
 
+async function isiAc(id, talep) {
+  const d = await api(`/api/is/${id}`);
+  const bitti = d.olaylar.find((o) => o.tip === "is_bitti");
+  const hata = d.olaylar.find((o) => o.tip === "is_hatasi");
+  modalAc(talep.slice(0, 70), bitti ? bitti.sonuc : hata ? `**Hata:** ${hata.mesaj}` : "_Sonuç yok._", d.dosyalar, id, talep);
+}
+
+function projeleriGoster(baslik, projeler) {
+  modalAc(`${baslik} — başarıyla biten projeler (${projeler.length})`, "");
+  const kap = $("#modal-icerik");
+  if (!projeler.length) {
+    kap.innerHTML = "<p>Bu departmanın katkı verdiği, başarıyla tamamlanmış bir proje henüz yok. Simülasyonlar sayılmaz.</p>";
+    return;
+  }
+  const ul = document.createElement("ul");
+  ul.className = "gecmis";
+  for (const p of projeler) {
+    const li = document.createElement("li");
+    li.innerHTML = `${kacis(p.talep.slice(0, 120))}<small>${kacis(p.id)}</small>`;
+    li.onclick = () => isiAc(p.id, p.talep);
+    ul.appendChild(li);
+  }
+  kap.replaceChildren(ul);
+}
+
 async function istatistikYukle() {
   try { durum.istatistik = await api("/api/istatistik"); } catch { durum.istatistik = null; }
+  if (durum.ofis) ofisiCiz();
   if (durum.secili) masaPaneliDoldur();
 }
 

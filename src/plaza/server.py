@@ -449,7 +449,27 @@ def istatistik() -> dict:
                 s["gorev"] += 1
                 s["sure"] = round(s["sure"] + o.get("istatistik", {}).get("sure", 0), 1)
                 s["token"] += o.get("istatistik", {}).get("ceo_token", 0)
-    return {"is_sayisi": is_sayisi, "masalar": masalar}
+    return {"is_sayisi": is_sayisi, "masalar": masalar, "projeler": _basarili_projeler()}
+
+
+def _basarili_projeler() -> dict[str, list[dict]]:
+    """Departman başına başarıyla biten (gerçek) projeler. 'ceo': tüm başarılı projeler.
+
+    Bir proje, o departmandan en az bir çalışan görevini tamamladıysa departmana sayılır.
+    Masa → departman eşlemesi ofisin şu anki düzenine göre yapılır.
+    """
+    office = load_office()
+    masa_dep = {s.key: d.key for d in office.departments for s in d.staff}
+    sonuc: dict[str, list[dict]] = {"ceo": [], **{d.key: [] for d in office.departments}}
+    for d, m in _metalar():
+        olaylar = m.get("olaylar", [])
+        if m.get("simulasyon") or not any(o.get("tip") == "is_bitti" for o in olaylar):
+            continue
+        proje = {"id": d.name, "talep": m.get("talep", "")}
+        sonuc["ceo"].append(proje)
+        for dep in {masa_dep[o["kime"]] for o in olaylar if o.get("tip") == "gorev_bitti" and o.get("kime") in masa_dep}:
+            sonuc[dep].append(proje)
+    return sonuc
 
 
 @app.get("/api/is/{is_id}")
