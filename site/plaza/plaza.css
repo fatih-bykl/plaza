@@ -1,0 +1,101 @@
+/* Plaza sayfasına özel ekler. Temel tasarım /denk ile ortak style.css'ten gelir.
+   Denk'in telefon çerçeveleri yerine Plaza bir masaüstü uygulaması olduğu için
+   ekran görüntüleri yatay "pencere" çerçevesinde gösterilir. */
+
+.screen {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow);
+}
+
+.screen::before {
+  /* pencere başlık çubuğu */
+  content: "";
+  display: block;
+  height: 26px;
+  background:
+    radial-gradient(circle 4.5px at 16px 13px, #f87171 99%, transparent),
+    radial-gradient(circle 4.5px at 32px 13px, #fbbf24 99%, transparent),
+    radial-gradient(circle 4.5px at 48px 13px, #34d399 99%, transparent),
+    var(--bg-inset);
+  border-bottom: 1px solid var(--border);
+}
+
+.screen img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 10;
+}
+
+.hero-screens {
+  position: relative;
+  padding-bottom: 32px;
+}
+
+.hero-screens .screen.back {
+  position: absolute;
+  width: 78%;
+  right: -6%;
+  top: -6%;
+  opacity: 0.55;
+  transform: rotate(3deg);
+}
+
+.hero-screens .screen:not(.back) {
+  position: relative;
+  width: 100%;
+}
+
+@media (min-width: 900px) {
+  .hero-screens {
+    padding-bottom: 56px;
+  }
+}
+
+/* yatay görüntüler için daha geniş galeri sütunları */
+.gallery.wide {
+  grid-auto-columns: min(520px, 82vw);
+}
+
+@media (min-width: 768px) {
+  .gallery.wide {
+    grid-auto-columns: 560px;
+  }
+}
+
+.gallery.wide figure {
+  scroll-snap-align: start;
+}
+
+/* kod blokları (kurulum) */
+.code {
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  font: 500 0.85rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.provider-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.provider-row span {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+  font-size: 0.85rem;
+  color: var(--text-2);
+}

@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="tr" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Plaza – Yapay zekâ ajan ofisi | İnternet Sihirbazı</title>
+  <meta name="description" content="Plaza: yapay zekâ çalışanlarından oluşan, CEO'nun yönettiği kuşbakışı ajan ofisi. Görevi CEO'ya ver; departmanlar paralel çalışsın. Claude, Gemini, DeepSeek ve API'siz yerel modellerle. Ücretsiz ve açık kaynak.">
+  <meta name="theme-color" content="#09090b">
+  <link rel="canonical" href="https://www.internetsihirbazi.com/plaza/">
+  <link rel="icon" type="image/svg+xml" href="img/plaza-icon.svg">
+  <link rel="apple-touch-icon" href="img/plaza-icon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="tr_TR">
+  <meta property="og:site_name" content="İnternet Sihirbazı">
+  <meta property="og:title" content="Plaza – Yapay zekâ ajan ofisi">
+  <meta property="og:description" content="Görevi CEO'ya ver, departmanlar paralel çalışsın. Claude, Gemini, DeepSeek ve yerel modellerle çalışan kuşbakışı ajan ofisi.">
+  <meta property="og:url" content="https://www.internetsihirbazi.com/plaza/">
+  <meta property="og:image" content="https://www.internetsihirbazi.com/plaza/img/og.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <script>
+    // Ana siteyle aynı tema tercihi ("theme": "dark" | "light"); varsayılan koyu.
+    try {
+      if (localStorage.getItem('theme') === 'light') {
+        document.documentElement.className = 'light';
+      }
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=1">
+  <link rel="stylesheet" href="plaza.css?v=1">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Plaza",
+    "operatingSystem": "Linux, Windows, macOS (Python 3.12+)",
+    "applicationCategory": "BusinessApplication",
+    "inLanguage": "tr",
+    "softwareVersion": "1.0.0",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "TRY" },
+    "downloadUrl": "https://github.com/fatih-bykl/plaza/releases/latest",
+    "codeRepository": "https://github.com/fatih-bykl/plaza",
+    "publisher": { "@type": "Organization", "name": "İnternet Sihirbazı", "url": "https://www.internetsihirbazi.com/" }
+  }
+  </script>
+</head>
+<body>
+
+<!-- Simgeler (Lucide çizgi simgeleri) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></symbol>
+    <symbol id="i-crown" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.56 3.27a.5.5 0 0 1 .88 0l2.95 5.6a1 1 0 0 0 1.52.29L21.18 5.5a.5.5 0 0 1 .8.52l-2.83 10.25a1 1 0 0 1-.96.73H5.81a1 1 0 0 1-.96-.73L2.02 6.02a.5.5 0 0 1 .8-.52l4.27 3.66a1 1 0 0 0 1.52-.29z"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 12.5-8.97 4.08a2 2 0 0 1-1.66 0L2.4 12.5"/><path d="m22 17.5-8.97 4.08a2 2 0 0 1-1.66 0L2.4 17.5"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/></symbol>
+    <symbol id="i-wifi-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01M8.5 16.43a5 5 0 0 1 7 0M2 8.82a15 15 0 0 1 4.17-2.65M10.66 5c4.01-.36 8.14.9 11.34 3.76M16.85 11.25a10 10 0 0 1 2.22 1.68M5 13a10 10 0 0 1 5.24-2.76"/><path d="m2 2 20 20"/></symbol>
+    <symbol id="i-layout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></symbol>
+    <symbol id="i-list-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 18H3M15 18l2 2 4-4M16 12H3M16 6H3"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9M13 17V5M8 17v-3"/></symbol>
+    <symbol id="i-building" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+  </defs>
+</svg>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="İnternet Sihirbazı ana sayfa">
+      <span class="logo-pill" aria-hidden="true"></span>
+      <span>İnternet Sihirbazı</span>
+    </a>
+    <span class="crumb" aria-hidden="true">/ <b>Plaza</b></span>
+    <nav class="nav" aria-label="Sayfa bölümleri">
+      <a href="#ozellikler">Özellikler</a>
+      <a href="#ekranlar">Ekranlar</a>
+      <a href="#kurulum">Kurulum</a>
+      <a href="#sss">SSS</a>
+    </nav>
+    <div class="header-actions">
+      <button class="icon-btn" type="button" id="theme-toggle" aria-label="Açık/koyu tema">
+        <svg class="theme-sun"><use href="#i-sun"/></svg>
+        <svg class="theme-moon"><use href="#i-moon"/></svg>
+      </button>
+      <a class="dl-btn" href="https://github.com/fatih-bykl/plaza" aria-label="Plaza'yı GitHub'da aç">
+        <svg><use href="#i-github"/></svg><span>GitHub</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="hero card" aria-labelledby="baslik">
+    <div>
+      <img class="hero-icon" src="img/plaza-icon.svg" width="72" height="72" alt="Plaza simgesi">
+      <span class="pill">Masaüstü uygulaması · Ücretsiz · Açık kaynak</span>
+      <h1 id="baslik">Plaza</h1>
+      <p class="lead">Yapay zekâ çalışanlarından oluşan kendi ofisin. Görevi CEO'ya ver, gerisini ekibin halletsin.</p>
+      <p class="desc">Kuşbakışı bir ofiste CEO, Ürün, Yazılım, Kalite Kontrol, Araştırma ve İçerik
+        departmanları masalarında çalışır. CEO talebini planlar, işi departmanlara dağıtır;
+        aynı aşamadaki ekipler aynı anda çalışır, CEO sonucu değerlendirip teslim eder.
+        Her masada hangi yapay zekânın çalışacağını sen seçersin.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="https://github.com/fatih-bykl/plaza">
+          <svg><use href="#i-github"/></svg>GitHub'da gör
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/fatih-bykl/plaza/releases/latest">
+          <svg><use href="#i-download"/></svg>Sürümü indir
+        </a>
+      </div>
+      <ul class="meta">
+        <li><svg><use href="#i-check"/></svg>Linux · Windows · macOS</li>
+        <li><svg><use href="#i-check"/></svg>Sürüm 1.0.0</li>
+        <li><svg><use href="#i-check"/></svg>Türkçe arayüz</li>
+        <li><svg><use href="#i-check"/></svg>Açık kaynak</li>
+      </ul>
+    </div>
+    <div class="hero-screens" aria-hidden="true">
+      <div class="screen back"><img src="img/03-calisirken.webp" width="1600" height="1000" alt="" loading="eager"></div>
+      <div class="screen"><img src="img/01-ofis.webp" width="1600" height="1000" alt="" fetchpriority="high"></div>
+    </div>
+  </section>
+
+  <section class="summary card" aria-label="Kısaca Plaza">
+    <div class="summary-item">
+      <svg><use href="#i-crown"/></svg>
+      <div><b>Önce CEO</b><span>Her görev CEO'ya gelir; o planlar ve dağıtır.</span></div>
+    </div>
+    <div class="summary-item">
+      <svg><use href="#i-layers"/></svg>
+      <div><b>Paralel ekipler</b><span>Birbirini beklemeyen işler aynı anda yapılır.</span></div>
+    </div>
+    <div class="summary-item">
+      <svg><use href="#i-cpu"/></svg>
+      <div><b>İstediğin yapay zekâ</b><span>Claude, Gemini, DeepSeek ya da yerel model.</span></div>
+    </div>
+    <div class="summary-item">
+      <svg><use href="#i-wifi-off"/></svg>
+      <div><b>API'siz de çalışır</b><span>Ollama ile modeller kendi bilgisayarında.</span></div>
+    </div>
+  </section>
+
+  <section class="section" id="ozellikler" aria-labelledby="ozellikler-baslik">
+    <div class="section-head">
+      <p class="eyebrow">Özellikler</p>
+      <h2 id="ozellikler-baslik">Bir ofis dolusu yapay zekâ, tek ekranda</h2>
+      <p>Talebi yaz; plan, iş bölümü, kontrol ve teslimat ekibinde.</p>
+    </div>
+    <div class="features">
+      <article class="feature card">
+        <div class="feature-icon c-teal"><svg><use href="#i-layout"/></svg></div>
+        <h3>Kuşbakışı ofis</h3>
+        <p>Her departman bir oda, her çalışan bir masa.</p>
+        <ul>
+          <li>Çalışan, düşünen ve işi bitiren masalar canlı görünür</li>
+          <li>Görev kâğıtları CEO'dan masalara uçar</li>
+          <li>Her odada başarıyla biten proje sayısı 🏆</li>
+        </ul>
+      </article>
+      <article class="feature card">
+        <div class="feature-icon c-amber"><svg><use href="#i-crown"/></svg></div>
+        <h3>CEO yönetir</h3>
+        <p>Talebi inceler, aşamalı plan çıkarır, sonucu denetler.</p>
+        <ul>
+          <li>Basit işlerde 1-2 çalışanla yetinir</li>
+          <li>Yetersiz bulursa revizyon ister</li>
+          <li>Nihai teslimatı rapor olarak yazar</li>
+        </ul>
+      </article>
+      <article class="feature card">
+        <div class="feature-icon c-green"><svg><use href="#i-list-check"/></svg></div>
+        <h3>Plan senin onayında</h3>
+        <p>İstersen plan departmanlara gitmeden önce sana gelir.</p>
+        <ul>
+          <li>Çalışanı, görevi ve aşamayı değiştir</li>
+          <li>Adım ekle ya da sil, sonra onayla</li>
+          <li>Görev kuyruğu ve zamanlanmış görevler</li>
+        </ul>
+      </article>
+      <article class="feature card">
+        <div class="feature-icon c-purple"><svg><use href="#i-cpu"/></svg></div>
+        <h3>Masa başına yapay zekâ</h3>
+        <p>Her çalışanın modelini ayrı seç.</p>
+        <div class="provider-row" aria-label="Desteklenen sağlayıcılar">
+          <span>Claude</span><span>Gemini</span><span>DeepSeek</span><span>Ollama (yerel)</span>
+        </div>
+        <ul>
+          <li>Yedek model: ana model hata verirse devralır</li>
+        </ul>
+      </article>
+      <article class="feature card">
+        <div class="feature-icon c-blue"><svg><use href="#i-refresh"/></svg></div>
+        <h3>Kaldığı yerden devam</h3>
+        <p>Bir adım hata verse de emek boşa gitmez.</p>
+        <ul>
+          <li>Biten adımlar tekrarlanmadan iş sürer</li>
+          <li>Geçici hatalarda otomatik yeniden deneme</li>
+          <li>Ücretsiz katmanlar için istek hızı sınırı</li>
+        </ul>
+      </article>
+      <article class="feature card">
+        <div class="feature-icon c-teal"><svg><use href="#i-globe"/></svg></div>
+        <h3>Araçlar</h3>
+        <p>Çalışanlar dosya yazar, internette araştırır.</p>
+        <ul>
+          <li>Web'de arama ve sayfa okuma</li>
+          <li>İsteğe bağlı Python çalıştırma (30 sn sınırı)</li>
+          <li>Ek dosyalar ve önceki işin üzerine devam</li>
+        </ul>
+      </article>
+      <article class="feature card">
+        <div class="feature-icon c-rose"><svg><use href="#i-eye"/></svg></div>
+        <h3>Canlı çıktı ve önizleme</h3>
+        <p>Çalışan yazarken metni anında gör.</p>
+        <ul>
+          <li>Üretilen HTML sayfaları güvenli çerçevede açılır</li>
+          <li>Tüm dosyalar tek tıkla ZIP</li>
+        </ul>
+      </article>
+      <article class="feature card">
+        <div class="feature-icon c-amber"><svg><use href="#i-message"/></svg></div>
+        <h3>Çalışanla sohbet</h3>
+        <p>CEO'yu araya sokmadan bir çalışana doğrudan sor.</p>
+        <ul>
+          <li>Her masada ayrı sohbet</li>
+          <li>Rolüne ve karakterine göre yanıt verir</li>
+        </ul>
+      </article>
+      <article class="feature card">
+        <div class="feature-icon c-green"><svg><use href="#i-chart"/></svg></div>
+        <h3>Maliyet takibi</h3>
+        <p>Hangi iş ne kadar sürdü, ne kadara mal oldu?</p>
+        <ul>
+          <li>Adım ve iş başına süre, token ve maliyet</li>
+          <li>Aylık harcama özeti; yerel modeller ücretsiz</li>
+        </ul>
+      </article>
+      <article class="feature card">
+        <div class="feature-icon c-purple"><svg><use href="#i-building"/></svg></div>
+        <h3>Ofisini kendin kur</h3>
+        <p>Departman ekle, masa taşı, ekibini büyüt.</p>
+        <ul>
+          <li>Hazır şablonlar: Web Ajansı, Pazarlama, Hukuk, Muhasebe</li>
+          <li>Odada 6 masaya kadar çalışan</li>
+        </ul>
+      </article>
+      <article class="feature card">
+        <div class="feature-icon c-blue"><svg><use href="#i-calendar"/></svg></div>
+        <h3>Zamanlanmış görevler</h3>
+        <p>"Her pazartesi 09:00'da haftalık rapor" gibi.</p>
+        <ul>
+          <li>Saat ve gün seçimi</li>
+          <li>Hazır görev şablonları</li>
+        </ul>
+      </article>
+      <article class="feature card">
+        <div class="feature-icon c-rose"><svg><use href="#i-shield"/></svg></div>
+        <h3>Senin bilgisayarında</h3>
+        <p>Plaza bir hesap ya da bulut hizmeti değildir.</p>
+        <ul>
+          <li>Ayarlar ve çıktılar kendi klasöründe</li>
+          <li>API anahtarların yalnızca senin .env dosyanda</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" id="ekranlar" aria-labelledby="ekranlar-baslik">
+    <div class="gallery-card card">
+      <div class="gallery-top">
+        <div class="section-head" style="margin:0">
+          <p class="eyebrow">Ekranlar</p>
+          <h2 id="ekranlar-baslik">Uygulamadan görüntüler</h2>
+        </div>
+        <div class="gallery-nav">
+          <button class="icon-btn" type="button" data-scroll="-1" aria-label="Önceki ekranlar"><svg><use href="#i-left"/></svg></button>
+          <button class="icon-btn" type="button" data-scroll="1" aria-label="Sonraki ekranlar"><svg><use href="#i-right"/></svg></button>
+        </div>
+      </div>
+      <div class="gallery wide" id="gallery" tabindex="0" aria-label="Ekran görüntüleri, yana kaydır">
+        <figure>
+          <div class="screen"><img src="img/01-ofis.webp" width="1600" height="1000" loading="lazy" alt="Kuşbakışı ofis: ortada CEO odası, çevresinde departman odaları; sağda görev paneli"></div>
+          <figcaption><b>Kuşbakışı ofis</b><span>CEO odası, departmanlar ve görev paneli</span></figcaption>
+        </figure>
+        <figure>
+          <div class="screen"><img src="img/02-plan-onayi.webp" width="1600" height="1000" loading="lazy" alt="CEO'nun aşamalı planı onay bekliyor: çalışan, görev ve aşama düzenlenebilir"></div>
+          <figcaption><b>Plan onayı</b><span>Planı düzenle, sonra onayla</span></figcaption>
+        </figure>
+        <figure>
+          <div class="screen"><img src="img/03-calisirken.webp" width="1600" height="1000" loading="lazy" alt="Üç departman aynı anda çalışıyor; iş akışında aşamalar ve paralel görevler"></div>
+          <figcaption><b>Paralel çalışma</b><span>Aynı aşamadaki ekipler aynı anda</span></figcaption>
+        </figure>
+        <figure>
+          <div class="screen"><img src="img/04-html-onizleme.webp" width="1600" height="1000" loading="lazy" alt="Ekibin ürettiği kahve dükkânı web sayfasının canlı önizlemesi"></div>
+          <figcaption><b>Canlı önizleme</b><span>Ekibin ürettiği sayfa, hemen</span></figcaption>
+        </figure>
+        <figure>
+          <div class="screen"><img src="img/05-masa-ayarlari.webp" width="1600" height="1000" loading="lazy" alt="Masa ayarları: yapay zekâ modeli, yedek model, rol, hedef ve araçlar"></div>
+          <figcaption><b>Masa ayarları</b><span>Model, yedek model, rol, araçlar</span></figcaption>
+        </figure>
+        <figure>
+          <div class="screen"><img src="img/06-ayarlar.webp" width="1600" height="1000" loading="lazy" alt="Ayarlar: sağlayıcı başına istek hızı sınırı, canlı akış ve model fiyatları"></div>
+          <figcaption><b>Ayarlar ve harcama</b><span>Hız sınırları, fiyatlar, aylık harcama</span></figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="kurulum" aria-labelledby="kurulum-baslik">
+    <div class="section-head">
+      <p class="eyebrow">Kurulum</p>
+      <h2 id="kurulum-baslik">Üç adımda kullanmaya başla</h2>
+    </div>
+    <div class="steps">
+      <div class="step card">
+        <h3>İndir</h3>
+        <p>Kaynak kodu <a href="https://github.com/fatih-bykl/plaza">GitHub'dan</a> indir.
+          Python 3.12+ ve <a href="https://docs.astral.sh/uv/">uv</a> gerekir.</p>
+        <pre class="code">git clone https://github.com/fatih-bykl/plaza.git
+cd plaza
+uv sync</pre>
+      </div>
+      <div class="step card">
+        <h3>Yapay zekânı seç</h3>
+        <p>Kullanacağın sağlayıcının anahtarını <code>.env</code> dosyasına yaz. Anahtarsız kullanmak
+          için <a href="https://ollama.com">Ollama</a> ile yerel bir model indir.</p>
+        <pre class="code">cp .env.example .env
+# ya da API'siz:
+ollama pull deepseek-r1:8b</pre>
+      </div>
+      <div class="step card">
+        <h3>Ofisi aç</h3>
+        <p>Tarayıcında ofis açılır. Bir masaya tıklayıp modelini seç, sonra görevi CEO'ya ver.</p>
+        <pre class="code">uv run plaza-ofis</pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="privacy-band card">
+      <div>
+        <h2>Ofis senin bilgisayarında</h2>
+        <p>Plaza'da hesap açılmaz ve bizim bir sunucumuz yoktur. Uygulama kendi bilgisayarında çalışır;
+          görevlerin yalnızca senin seçtiğin yapay zekâ sağlayıcısına gider. Yerel model kullanırsan
+          hiçbir şey bilgisayarından çıkmaz.</p>
+        <ul class="checks">
+          <li><svg><use href="#i-check"/></svg>Hesap yok</li>
+          <li><svg><use href="#i-check"/></svg>Reklam ve takip yok</li>
+          <li><svg><use href="#i-check"/></svg>Yerel model desteği</li>
+          <li><svg><use href="#i-check"/></svg>Kaynak kodu açık</li>
+        </ul>
+      </div>
+      <a class="btn btn-ghost" href="https://github.com/fatih-bykl/plaza"><svg><use href="#i-github"/></svg>Kaynak kodu</a>
+    </div>
+  </section>
+
+  <section class="section" id="sss" aria-labelledby="sss-baslik">
+    <div class="section-head">
+      <p class="eyebrow">SSS</p>
+      <h2 id="sss-baslik">Sık sorulan sorular</h2>
+    </div>
+    <div class="faq">
+      <details class="card">
+        <summary>Plaza ücretli mi?</summary>
+        <p>Hayır, Plaza ücretsiz ve açık kaynaktır. Yalnızca seçtiğin yapay zekâ sağlayıcısı (Claude, Gemini,
+          DeepSeek) kendi kullanım ücretini alabilir; Plaza her işin tahmini maliyetini gösterir.
+          Ollama ile yerel model kullanırsan tamamen ücretsizdir.</p>
+      </details>
+      <details class="card">
+        <summary>API anahtarı olmadan kullanabilir miyim?</summary>
+        <p>Evet. <a href="https://ollama.com">Ollama</a> kurup DeepSeek R1 gibi bir modeli indirirsen masalar
+          o modelle çalışır; anahtar ya da internet gerekmez. 8 GB ekran kartı DeepSeek R1 8B için yeterlidir.
+          Yerel modeller bulut modellerine göre daha yavaş ve daha basittir.</p>
+      </details>
+      <details class="card">
+        <summary>Hangi yapay zekâlar destekleniyor?</summary>
+        <p>Anthropic Claude (Opus, Sonnet, Haiku, Fable), Google Gemini, DeepSeek ve Ollama ile çalışan yerel
+          modeller. Her masaya farklı bir model ve bir yedek model atayabilirsin.</p>
+      </details>
+      <details class="card">
+        <summary>Neler yaptırabilirim?</summary>
+        <p>Web sayfası, araştırma raporu, sosyal medya içeriği, kod inceleme, e-posta ve özet gibi işler.
+          Çalışanlar dosya yazabilir, internette araştırabilir; ürettikleri HTML sayfalarını Plaza içinde
+          hemen görebilirsin.</p>
+      </details>
+      <details class="card">
+        <summary>Simülasyon modu nedir?</summary>
+        <p>Yapay zekâ çağırmadan bütün akışı sahte çıktılarla dener. Ofisi tanımak ve ayarlarını denemek
+          için idealdir; hiçbir ücret oluşmaz.</p>
+      </details>
+      <details class="card">
+        <summary>Verilerim nereye gidiyor?</summary>
+        <p>Görevin yalnızca o masada seçtiğin yapay zekâ sağlayıcısına gönderilir. Ayarların ve iş çıktıların
+          kendi bilgisayarında, Plaza klasöründe durur. API anahtarların <code>.env</code> dosyanda kalır ve hiçbir
+          yere yüklenmez.</p>
+      </details>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div>
+      <a class="brand" href="/">
+        <span class="logo-pill" aria-hidden="true"></span>
+        <span>İnternet Sihirbazı</span>
+      </a>
+      <p>Plaza 1.0.0 · © 2026 İnternet Sihirbazı</p>
+    </div>
+    <nav class="footer-links" aria-label="Alt bağlantılar">
+      <a href="/">Ana sayfa</a>
+      <a href="https://github.com/fatih-bykl/plaza">Kaynak kodu</a>
+      <a href="https://github.com/fatih-bykl/plaza/releases">Tüm sürümler</a>
+      <a href="https://github.com/fatih-bykl/plaza/issues">Hata bildir</a>
+      <a href="mailto:admin@internetsihirbazi.com">İletişim</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="site.js?v=1" defer></script>
+</body>
+</html>

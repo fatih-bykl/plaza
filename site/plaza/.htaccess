@@ -1,0 +1,17 @@
+# Plaza tanıtım sayfası — Apache / LiteSpeed sunucular için (/denk ile aynı ayarlar).
+#
+# HTML her açılışta sunucuya sorulur (güncelleme hemen görünür). CSS ve JS
+# adreslerinde sürüm parametresi (?v=N) olduğu için uzun süre önbellekte kalabilir.
+<IfModule mod_headers.c>
+  <FilesMatch "\.html$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  <FilesMatch "\.(css|js)$">
+    Header set Cache-Control "public, max-age=2592000"
+  </FilesMatch>
+  <FilesMatch "\.(png|jpg|webp|svg|ico)$">
+    Header set Cache-Control "public, max-age=604800"
+  </FilesMatch>
+</IfModule>
+
+AddType image/webp .webp
